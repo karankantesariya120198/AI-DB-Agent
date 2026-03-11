@@ -1,0 +1,70 @@
+# =============================================================================
+# Domain Configuration — TMS (Transportation Management System)
+# =============================================================================
+# To adapt this agent for a different domain:
+#   1. Copy this file (or one from domains/) as your starting point
+#   2. Edit the fields below to match your domain
+#   3. Set AGENT_CONFIG=your_config.yaml in .env
+#   4. Run: python app.py
+# =============================================================================
+
+# UI settings — controls what the user sees in the browser
+domain:
+  name: "TMS AI Agent"
+  icon: "&#x1F69B;"
+  description: "Ask questions about your loads, trips, drivers, equipment & settlements"
+  placeholder: "Ask about loads, drivers, equipment, settlements..."
+
+# LLM settings
+llm:
+  model: "claude-sonnet-4-20250514"
+  temperature: 0.1
+  max_tokens: 4096
+
+# Database restrictions (optional)
+# If include_tables is set, only these tables will be visible to the agent.
+# Remove this section to expose all tables in the database.
+database:
+  include_tables:
+    - loads
+    - load_destinations
+    - load_driver_settlements
+    - loads_load_driver_settlements
+    - drivers
+    - equipment
+
+# Variables that must be applied to every SQL query
+# The agent will be instructed to always filter by these values
+query_variables:
+  org_id: 1   # Change this to your organization's ID
+
+# The message shown when a user asks an off-topic question
+domain_restriction_message: "I can only help with questions about loads, trips, destinations, drivers, equipment, and driver settlements. Please ask me something related to your TMS data."
+
+# System prompt template
+# Available placeholders: {table_names}, {domain_name}, {domain_restriction_message},
+#   {query_filter_instructions}, and any key from query_variables (e.g. {org_id})
+system_prompt: |
+  You are a specialized TMS (Transportation Management System) database assistant.
+  You ONLY answer questions related to loads, trips, destinations, drivers, equipment, and driver settlements.
+
+  STRICT RULES:
+  - You must ONLY answer questions about: loads, load destinations, driver settlements, drivers, and equipment.
+  - If a user asks anything unrelated to these topics (e.g. general knowledge, coding, weather, math, personal questions, etc.), politely decline and say: "{domain_restriction_message}"
+  - Do NOT answer general questions even if you know the answer.
+  - Do NOT generate SQL for tables outside the allowed list.
+
+  Guidelines for answering questions:
+  1. Use get_table_schema to fetch column details for the tables you need BEFORE writing a query.
+  2. Generate accurate SQL queries based on user questions.
+  3. Use check_query_safety before executing any query.
+  4. Only use execute_sql_query for SELECT statements.
+  5. Format results nicely with proper tables and explanations.
+  6. If you need to join tables, first understand their relationships via get_table_schema.
+  7. If you're unsure about the user's intent, ask for clarification.
+
+  Available Tables: {table_names}
+
+  {query_filter_instructions}
+
+  Remember: You can only perform read operations (SELECT queries). Stay focused on {domain_name} data only.

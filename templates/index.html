@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <header class="main-header">
+            <div class="header-content">
+                <div>
+                    <h1>{{ icon | safe }} {{ title }}</h1>
+                    <p>{{ description }}</p>
+                </div>
+                <button id="clear-btn" title="Clear chat">&#x1F5D1; Clear</button>
+            </div>
+        </header>
+
+        <main id="chat-container" class="chat-container"></main>
+
+        <footer class="input-bar">
+            <form id="chat-form">
+                <input
+                    type="text"
+                    id="message-input"
+                    placeholder="{{ placeholder }}"
+                    autocomplete="off"
+                />
+                <button type="submit" id="send-btn">Send</button>
+            </form>
+        </footer>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
