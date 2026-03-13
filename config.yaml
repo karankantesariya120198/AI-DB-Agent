@@ -36,7 +36,7 @@ database:
 # Variables that must be applied to every SQL query
 # The agent will be instructed to always filter by these values
 query_variables:
-  org_id: 1   # Change this to your organization's ID
+  org_id: 418   # Change this to your organization's ID
 
 # The message shown when a user asks an off-topic question
 domain_restriction_message: "I can only help with questions about loads, trips, destinations, drivers, equipment, and driver settlements. Please ask me something related to your TMS data."

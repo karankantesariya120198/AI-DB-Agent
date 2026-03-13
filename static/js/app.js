@@ -10,7 +10,24 @@ function scrollToBottom() {
     chatContainer.scrollTop = chatContainer.scrollHeight;
 }
 
-function createBubble(role, content) {
+function formatTime(date) {
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function addTimeToWrapper(bubbleEl, role) {
+    const wrapper = bubbleEl.parentElement;
+    if (wrapper && !wrapper.querySelector(".message-time")) {
+        const timeEl = document.createElement("span");
+        timeEl.className = `message-time ${role}`;
+        timeEl.textContent = formatTime(new Date());
+        wrapper.appendChild(timeEl);
+    }
+}
+
+function createBubble(role, content, showTime = true) {
+    const wrapper = document.createElement("div");
+    wrapper.className = `message-row ${role}`;
+
     const div = document.createElement("div");
     div.className = `message ${role}`;
     if (role === "user") {
@@ -18,22 +35,37 @@ function createBubble(role, content) {
     } else {
         div.innerHTML = content;
     }
-    chatContainer.appendChild(div);
+    wrapper.appendChild(div);
+
+    if (showTime) {
+        const timeEl = document.createElement("span");
+        timeEl.className = `message-time ${role}`;
+        timeEl.textContent = formatTime(new Date());
+        wrapper.appendChild(timeEl);
+    }
+
+    chatContainer.appendChild(wrapper);
     scrollToBottom();
     return div;
 }
 
 function renderMarkdown(text) {
+    let html;
     // Use marked.js to render markdown (including tables)
     if (typeof marked !== "undefined") {
-        return marked.parse(text);
+        html = marked.parse(text);
+    } else {
+        // Fallback: escape HTML and convert newlines
+        html = text
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/\n/g, "<br>");
     }
-    // Fallback: escape HTML and convert newlines
-    return text
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/\n/g, "<br>");
+    // Wrap every <table> in a scrollable container so wide tables don't overflow
+    html = html.replace(/<table>/g, '<div class="table-wrapper"><table>');
+    html = html.replace(/<\/table>/g, '</table></div>');
+    return html;
 }
 
 chatForm.addEventListener("submit", async (e) => {
@@ -46,10 +78,11 @@ chatForm.addEventListener("submit", async (e) => {
     messageInput.value = "";
     sendBtn.disabled = true;
 
-    // Create assistant bubble with spinner
+    // Create assistant bubble with spinner (no time yet — added when response completes)
     const assistantBubble = createBubble(
         "assistant",
-        '<span class="spinner"></span> Thinking...'
+        '<span class="spinner"></span> Thinking...',
+        false
     );
 
     let streamedText = "";
@@ -105,6 +138,7 @@ chatForm.addEventListener("submit", async (e) => {
                     assistantBubble.innerHTML = renderMarkdown(
                         event.full_response
                     );
+                    addTimeToWrapper(assistantBubble, "assistant");
                     scrollToBottom();
                 }
 
@@ -113,12 +147,14 @@ chatForm.addEventListener("submit", async (e) => {
                         '<span style="color:red;">Error: ' +
                         event.error +
                         "</span>";
+                    addTimeToWrapper(assistantBubble, "assistant");
                 }
             }
         }
     } catch (err) {
         assistantBubble.innerHTML =
             '<span style="color:red;">Connection error. Please try again.</span>';
+        addTimeToWrapper(assistantBubble, "assistant");
     }
 
     sendBtn.disabled = false;

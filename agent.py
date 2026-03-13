@@ -229,11 +229,44 @@ class DatabaseAgent:
         else:
             filter_instructions = ""
 
+        # Build view/column instructions from config views
+        views = self.config.get("views", {})
+        if views:
+            view_lines = []
+            for view_name, view_config in views.items():
+                desc = view_config.get("description", view_name)
+                endpoint = view_config.get("endpoint", "")
+                cols = view_config.get("grid_columns", [])
+                dest_cols = view_config.get("destination_columns", [])
+                col_list = ", ".join(
+                    [f"{c['label']} ({c['field']})" + (f" — {c['note']}" if c.get('note') else "") for c in cols]
+                )
+                dest_col_list = ", ".join(
+                    [f"{c['label']} ({c['field']})" + (f" — {c['note']}" if c.get('note') else "") for c in dest_cols]
+                )
+                view_lines.append(f"View: {desc} ({endpoint})")
+                view_lines.append(f"  Load columns: {col_list}")
+                if dest_col_list:
+                    view_lines.append(f"  Destination columns: {dest_col_list}")
+            view_columns_instructions = "\n".join(view_lines)
+        else:
+            view_columns_instructions = ""
+
+        # Build table join instructions from config
+        table_joins = self.config.get("table_joins", [])
+        if table_joins:
+            join_lines = [f"- {j['join']}  -- {j['purpose']}" for j in table_joins]
+            table_join_instructions = "\n".join(join_lines)
+        else:
+            table_join_instructions = ""
+
         system_prompt = self.config["system_prompt"].format(
             table_names=", ".join(self.table_names),
             domain_name=domain_name,
             domain_restriction_message=restriction_msg,
             query_filter_instructions=filter_instructions,
+            view_columns_instructions=view_columns_instructions,
+            table_join_instructions=table_join_instructions,
             **{k: str(v) for k, v in query_vars.items()},
         )
 

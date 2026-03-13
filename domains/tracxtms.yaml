@@ -1,0 +1,390 @@
+# =============================================================================
+# Domain Configuration — TMS (Transportation Management System)
+# =============================================================================
+# To adapt this agent for a different domain:
+#   1. Copy this file (or one from domains/) as your starting point
+#   2. Edit the fields below to match your domain
+#   3. Set AGENT_CONFIG=your_config.yaml in .env
+#   4. Run: python app.py
+# =============================================================================
+
+# UI settings — controls what the user sees in the browser
+domain:
+  name: "TMS AI Agent"
+  icon: "&#x1F69B;"
+  description: "Ask questions about your loads, trips, drivers, equipment & settlements"
+  placeholder: "Ask about loads, drivers, equipment, settlements..."
+
+# LLM settings
+llm:
+  model: "claude-sonnet-4-20250514"
+  temperature: 0.1
+  max_tokens: 4096
+
+# Database restrictions (optional)
+# If include_tables is set, only these tables will be visible to the agent.
+# These tables cover the dispatch grid JOINs used in LoadsController.
+database:
+  include_tables:
+    - loads
+    - load_destinations
+    - load_driver_settlements
+    - loads_load_driver_settlements
+    - drivers
+    - equipment
+    - load_statuses
+    - locations
+    - name_addresses
+    - users
+    - loads_categories
+    - taxes
+    - loads_terminal
+    - terminal
+    - rate_types
+    - loads_trips
+    - settlements
+
+# =============================================================================
+# Dispatch grid views — maps each page to its visible columns
+# Each column documents: the UI label, the source table.column, and the JOIN path
+# =============================================================================
+views:
+  dispatch:
+    description: "General dispatch loads grid"
+    endpoint: "/dispatch"
+    grid_columns:
+      # --- Direct columns from loads table ---
+      - field: "loads.show_id"
+        label: "Load #"
+        source: "loads.show_id"
+      - field: "loads.ponum"
+        label: "PO #"
+        source: "loads.ponum"
+      - field: "loads.trip_id"
+        label: "Trip #"
+        source: "loads.trip_id"
+      - field: "loads.ship_date"
+        label: "Ship Date"
+        source: "loads.ship_date"
+      - field: "loads.delivery_date"
+        label: "Delivery Date"
+        source: "loads.delivery_date"
+      - field: "loads.rate"
+        label: "Rate"
+        source: "loads.rate"
+      - field: "loads.distance"
+        label: "Distance"
+        source: "loads.distance"
+      - field: "loads.notes"
+        label: "Load Note"
+        source: "loads.notes"
+
+      # --- Columns requiring JOINs ---
+      - field: "load_statuses.status_name"
+        label: "Status"
+        source: "load_statuses.status_name"
+        join: "JOIN load_statuses ON loads.status_id = load_statuses.id"
+      - field: "invoiceTo.company_name"
+        label: "Invoice To Name"
+        source: "name_addresses.company_name"
+        join: "LEFT JOIN name_addresses AS invoiceTo ON loads.invoice_to_id = invoiceTo.id"
+      - field: "loads.load_total - loads.load_tax_total"
+        label: "Sale $"
+        source: "loads.load_total minus loads.load_tax_total"
+        note: "Calculated: loads.load_total - loads.load_tax_total"
+      - field: "taxes.code"
+        label: "Tax"
+        source: "taxes.code"
+        join: "LEFT JOIN taxes ON loads.tax_code_id = taxes.id"
+      - field: "loads_categories.name"
+        label: "Load Category"
+        source: "loads_categories.name"
+        join: "LEFT JOIN loads_categories ON loads.category_id = loads_categories.id"
+      - field: "creator.name"
+        label: "Creator"
+        source: "users.name (aliased as creator)"
+        join: "JOIN users AS creator ON loads.createdby_id = creator.id"
+      - field: "dispatcher.name"
+        label: "Dispatcher"
+        source: "users.name (aliased as dispatcher)"
+        join: "LEFT JOIN users AS dispatcher ON loads.dispatcher_id = dispatcher.id"
+      - field: "terminal.name"
+        label: "Terminal"
+        source: "terminal.name"
+        join: "LEFT JOIN loads_terminal ON loads_terminal.load_id = loads.id LEFT JOIN terminal ON terminal.id = loads_terminal.terminal_id"
+        note: "GROUP_CONCAT(DISTINCT terminal.name) — a load can have multiple terminals"
+
+      # --- Settlement-derived columns (via pivot table) ---
+      - field: "drivers.reference_name"
+        label: "Driver/Carrier"
+        source: "drivers.reference_name via load_driver_settlements"
+        join: "LEFT JOIN loads_load_driver_settlements ON loads.id = loads_load_driver_settlements.load_id LEFT JOIN load_driver_settlements ON loads_load_driver_settlements.driver_settlement_id = load_driver_settlements.id LEFT JOIN drivers ON drivers.id = load_driver_settlements.driver_id"
+        note: "GROUP_CONCAT(DISTINCT drivers.reference_name) — multiple drivers possible"
+      - field: "equipment.name"
+        label: "Equipment Used"
+        source: "equipment.name via load_driver_settlements"
+        join: "LEFT JOIN equipment AS truck ON load_driver_settlements.truck_id = truck.id LEFT JOIN equipment AS equip1 ON load_driver_settlements.equip1_id = equip1.id LEFT JOIN equipment AS equip2 ON load_driver_settlements.equip2_id = equip2.id"
+        note: "CONCAT_WS(', ', truck.name, equip1.name, equip2.name)"
+      - field: "SUM(load_driver_settlements.total_amount)"
+        label: "Settlement $"
+        source: "load_driver_settlements.total_amount"
+        join: "Via loads_load_driver_settlements pivot"
+        note: "SUM(load_driver_settlements.total_amount)"
+      - field: "load_driver_settlements.shift_started_at"
+        label: "Start Shift"
+        source: "load_driver_settlements.shift_started_at"
+        join: "Via loads_load_driver_settlements pivot"
+      - field: "load_driver_settlements.shift_end_at"
+        label: "End Shift"
+        source: "load_driver_settlements.shift_end_at"
+        join: "Via loads_load_driver_settlements pivot"
+      - field: "TIMESTAMPDIFF(MINUTE, shift_started_at, shift_end_at)"
+        label: "Shift Hours"
+        note: "Computed: TIMESTAMPDIFF between Start Shift and End Shift, formatted as HH:MM"
+
+    # Columns from load_destinations + locations (Shipper = first stop, Consignee = last stop)
+    destination_columns:
+      - field: "locations.company_name"
+        label: "Pick Up"
+        source: "locations.company_name via load_destinations WHERE stop_order is lowest"
+        join: "JOIN load_destinations ON load_destinations.load_id = loads.id JOIN locations ON locations.id = load_destinations.location_id"
+        note: "Shipper = first stop (ORDER BY stop_order ASC LIMIT 1)"
+      - field: "locations.city"
+        label: "PickUp City"
+        source: "locations.city from first stop"
+      - field: "locations.company_name"
+        label: "Drop Off"
+        source: "locations.company_name via load_destinations WHERE stop_order is highest"
+        note: "Consignee = last stop (ORDER BY stop_order DESC LIMIT 1)"
+      - field: "locations.city"
+        label: "DropOff City"
+        source: "locations.city from last stop"
+      - field: "load_destinations.commodity_name"
+        label: "Commodity"
+        note: "GROUP_CONCAT(DISTINCT load_destinations.commodity_name)"
+      - field: "CONCAT(locations.city, ', ', locations.province)"
+        label: "Shipper Location"
+        note: "City + Province of the first stop (shipper)"
+      - field: "CONCAT(locations.city, ', ', locations.province)"
+        label: "Consignee Location"
+        note: "City + Province of the last stop (consignee)"
+      - field: "route_timeliness"
+        label: "Route Timeliness"
+        note: "Computed per stop: 1=arrived&departed, 2=in progress, 3=pending, 4=not started"
+
+  dispatch_usps:
+    description: "USPS dispatch loads grid"
+    endpoint: "/dispatch/usps"
+    # Same query structure as dispatch but with module='usps' filter
+    # and USPS-specific columns
+    grid_columns:
+      - field: "loads.show_id"
+        label: "Load #"
+        source: "loads.show_id"
+      - field: "load_statuses.status_name"
+        label: "Status"
+        source: "load_statuses.status_name"
+        join: "JOIN load_statuses ON loads.status_id = load_statuses.id"
+      - field: "loads.trip_id"
+        label: "Trip #"
+        source: "loads.trip_id"
+      - field: "loads.ponum"
+        label: "PO #"
+        source: "loads.ponum"
+      - field: "loads.ship_date"
+        label: "Ship Date"
+        source: "loads.ship_date"
+      - field: "loads.delivery_date"
+        label: "Delivery Date"
+        source: "loads.delivery_date"
+      - field: "loads.distance"
+        label: "Distance"
+        source: "loads.distance"
+      - field: "loads.rate"
+        label: "Rate"
+        source: "loads.rate"
+      - field: "loads.load_total"
+        label: "Load Total"
+        source: "loads.load_total"
+      - field: "loads.confirmed"
+        label: "Confirmed"
+        source: "loads.confirmed"
+      - field: "loads.track_num"
+        label: "Tracking #"
+        source: "loads.track_num"
+      - field: "loads.bookingnum"
+        label: "Booking #"
+        source: "loads.bookingnum"
+      - field: "loads.bid_interval"
+        label: "Bid Interval"
+        source: "loads.bid_interval"
+      - field: "loads.is_usps_recurring_load"
+        label: "Recurring"
+        source: "loads.is_usps_recurring_load"
+      - field: "loads.notes"
+        label: "Notes"
+        source: "loads.notes"
+      - field: "invoiceTo.company_name"
+        label: "Customer"
+        source: "name_addresses.company_name"
+        join: "LEFT JOIN name_addresses AS invoiceTo ON loads.invoice_to_id = invoiceTo.id"
+      - field: "dispatcher.name"
+        label: "Dispatcher"
+        source: "users.name"
+        join: "LEFT JOIN users AS dispatcher ON loads.dispatcher_id = dispatcher.id"
+      - field: "drivers.reference_name"
+        label: "Driver/Carrier"
+        source: "drivers.reference_name via load_driver_settlements"
+        join: "Via loads_load_driver_settlements pivot → load_driver_settlements → drivers"
+      - field: "SUM(load_driver_settlements.total_amount)"
+        label: "Settlement $"
+        source: "load_driver_settlements.total_amount"
+        join: "Via loads_load_driver_settlements pivot"
+    destination_columns:
+      - field: "locations.company_name"
+        label: "Pick Up"
+        source: "locations.company_name from first stop"
+      - field: "locations.city"
+        label: "PickUp City"
+        source: "locations.city from first stop"
+      - field: "locations.company_name"
+        label: "Drop Off"
+        source: "locations.company_name from last stop"
+      - field: "locations.city"
+        label: "DropOff City"
+        source: "locations.city from last stop"
+      - field: "load_destinations.commodity_name"
+        label: "Commodity"
+      - field: "load_destinations.usps_trip_destination_id"
+        label: "USPS Trip Dest"
+      - field: "load_destinations.usps_trip_id"
+        label: "USPS Trip"
+      - field: "load_destinations.day"
+        label: "Day"
+      - field: "load_destinations.scheduled_time_start"
+        label: "Scheduled Start"
+      - field: "load_destinations.scheduled_time_stop"
+        label: "Scheduled Stop"
+      - field: "load_destinations.arrived_at"
+        label: "Arrived At"
+      - field: "load_destinations.departed_at"
+        label: "Departed At"
+
+# =============================================================================
+# Table relationships — tells the LLM how to JOIN tables correctly
+# =============================================================================
+table_joins:
+  # Core load data
+  - join: "JOIN load_statuses ON loads.status_id = load_statuses.id"
+    purpose: "Get status name (load_statuses.status_name) and color (load_statuses.status_color)"
+  - join: "JOIN load_destinations ON load_destinations.load_id = loads.id"
+    purpose: "Get routing stops (shipper, consignee, intermediate stops)"
+  - join: "JOIN locations ON locations.id = load_destinations.location_id"
+    purpose: "Get location name (locations.company_name), city, province for each stop"
+
+  # Driver & settlement (many-to-many through pivot)
+  - join: "LEFT JOIN loads_load_driver_settlements ON loads.id = loads_load_driver_settlements.load_id"
+    purpose: "Pivot table linking loads to driver settlements"
+  - join: "LEFT JOIN load_driver_settlements ON loads_load_driver_settlements.driver_settlement_id = load_driver_settlements.id"
+    purpose: "Get settlement details: total_amount, shift times, driver_id, truck_id, equip1_id, equip2_id"
+  - join: "LEFT JOIN drivers ON drivers.id = load_driver_settlements.driver_id"
+    purpose: "Get driver name (drivers.reference_name)"
+  - join: "LEFT JOIN equipment AS truck ON load_driver_settlements.truck_id = truck.id"
+    purpose: "Get truck name"
+  - join: "LEFT JOIN equipment AS equip1 ON load_driver_settlements.equip1_id = equip1.id"
+    purpose: "Get trailer/equipment 1 name"
+  - join: "LEFT JOIN equipment AS equip2 ON load_driver_settlements.equip2_id = equip2.id"
+    purpose: "Get trailer/equipment 2 name"
+
+  # Reference lookups
+  - join: "LEFT JOIN name_addresses AS invoiceTo ON loads.invoice_to_id = invoiceTo.id"
+    purpose: "Get customer/invoice-to company name"
+  - join: "JOIN users AS creator ON loads.createdby_id = creator.id"
+    purpose: "Get creator user name"
+  - join: "LEFT JOIN users AS dispatcher ON loads.dispatcher_id = dispatcher.id"
+    purpose: "Get dispatcher user name"
+  - join: "LEFT JOIN loads_categories ON loads.category_id = loads_categories.id"
+    purpose: "Get load category name"
+  - join: "LEFT JOIN taxes ON loads.tax_code_id = taxes.id"
+    purpose: "Get tax code"
+  - join: "LEFT JOIN rate_types ON loads.rate_type_id = rate_types.id"
+    purpose: "Get rate type name"
+
+  # Terminal (many-to-many via pivot)
+  - join: "LEFT JOIN loads_terminal ON loads_terminal.load_id = loads.id"
+    purpose: "Pivot table linking loads to terminals"
+  - join: "LEFT JOIN terminal ON terminal.id = loads_terminal.terminal_id"
+    purpose: "Get terminal name"
+
+  # Settlement lookup
+  - join: "LEFT JOIN settlements ON load_driver_settlements.settlement_id = settlements.id"
+    purpose: "Get settlement date"
+
+# Variables that must be applied to every SQL query
+# The agent will be instructed to always filter by these values
+query_variables:
+  org_id: 418   # Change this to your organization's ID
+
+# The message shown when a user asks an off-topic question
+domain_restriction_message: "I can only help with questions about loads, trips, destinations, drivers, equipment, and driver settlements. Please ask me something related to your TMS data."
+
+# System prompt template
+# Available placeholders: {table_names}, {domain_name}, {domain_restriction_message},
+#   {query_filter_instructions}, {view_columns_instructions},
+#   and any key from query_variables (e.g. {org_id})
+system_prompt: |
+  You are a specialized TMS (Transportation Management System) database assistant.
+  You ONLY answer questions related to loads, trips, destinations, drivers, equipment, and driver settlements.
+
+  STRICT RULES:
+  - You must ONLY answer questions about: loads, load destinations, driver settlements, drivers, and equipment.
+  - If a user asks anything unrelated to these topics (e.g. general knowledge, coding, weather, math, personal questions, etc.), politely decline and say: "{domain_restriction_message}"
+  - Do NOT answer general questions even if you know the answer.
+  - Do NOT generate SQL for tables outside the allowed list.
+
+  DISPATCH GRID VIEWS:
+  {view_columns_instructions}
+
+  When a user asks about "loads" or "dispatch", use the dispatch view columns.
+  When a user asks about "USPS loads" or "USPS dispatch", use the dispatch_usps view columns.
+  When a user asks about a specific column (e.g., "show me the tracking number"), identify which view it belongs to and query that field.
+  Always SELECT only the relevant columns from the grid view, not all columns from the table.
+
+  CRITICAL TABLE RELATIONSHIPS — use these JOINs when building queries:
+  {table_join_instructions}
+
+  IMPORTANT QUERY PATTERNS:
+  - Status name: JOIN load_statuses ON loads.status_id = load_statuses.id → use load_statuses.status_name
+  - Driver name: loads → loads_load_driver_settlements (pivot) → load_driver_settlements → drivers.reference_name
+    Multiple drivers possible, use GROUP_CONCAT(DISTINCT drivers.reference_name)
+  - Equipment: From load_driver_settlements → LEFT JOIN equipment for truck_id, equip1_id, equip2_id
+  - Settlement $: SUM(load_driver_settlements.total_amount) via the pivot table
+  - Sale $: loads.load_total - loads.load_tax_total
+  - Customer/Invoice To: LEFT JOIN name_addresses ON loads.invoice_to_id = name_addresses.id → name_addresses.company_name
+  - Creator: JOIN users AS creator ON loads.createdby_id = creator.id → creator.name
+  - Dispatcher: LEFT JOIN users AS dispatcher ON loads.dispatcher_id = dispatcher.id → dispatcher.name
+  - Load Category: LEFT JOIN loads_categories ON loads.category_id = loads_categories.id → loads_categories.name
+  - Terminal: loads → loads_terminal (pivot) → terminal.name — use GROUP_CONCAT
+  - Pick Up (Shipper): First stop — load_destinations with lowest stop_order → JOIN locations → locations.company_name, locations.city
+  - Drop Off (Consignee): Last stop — load_destinations with highest stop_order → JOIN locations → locations.company_name, locations.city
+  - Commodity: GROUP_CONCAT(DISTINCT load_destinations.commodity_name)
+  - Shift times: load_driver_settlements.shift_started_at and load_driver_settlements.shift_end_at
+  - Shift Hours: TIMESTAMPDIFF(MINUTE, shift_started_at, shift_end_at) / 60
+
+  When queries involve multiple drivers or terminals, always GROUP BY loads.id and use GROUP_CONCAT for the multi-value columns.
+
+  Guidelines for answering questions:
+  1. Use get_table_schema to fetch column details for the tables you need BEFORE writing a query.
+  2. Generate accurate SQL queries based on user questions.
+  3. Use check_query_safety before executing any query.
+  4. Only use execute_sql_query for SELECT statements.
+  5. Format results nicely with proper tables and explanations.
+  6. If you need to join tables, use the TABLE RELATIONSHIPS section above.
+  7. If you're unsure about the user's intent, ask for clarification.
+  8. When joining loads with load_destinations, join on load_destinations.load_id = loads.id.
+
+  Available Tables: {table_names}
+
+  {query_filter_instructions}
+
+  Remember: You can only perform read operations (SELECT queries). Stay focused on {domain_name} data only.

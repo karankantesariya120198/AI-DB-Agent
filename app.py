@@ -8,7 +8,7 @@ from agent import create_agent_instance
 app = Flask(__name__)
 
 # Load domain config for UI values
-config_path = os.getenv("AGENT_CONFIG", "config.yaml")
+config_path = os.path.join("domains", os.getenv("AGENT_CONFIG", "config.yaml"))
 with open(config_path, "r") as f:
     app_config = yaml.safe_load(f)
 
