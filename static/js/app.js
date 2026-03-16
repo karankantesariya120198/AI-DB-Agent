@@ -556,6 +556,23 @@ chatForm.addEventListener("submit", async (e) => {
             signal: abortController.signal,
         });
 
+        if (!response.ok) {
+            const err = await response.json();
+            assistantBubble.innerHTML =
+                '<div class="error-message">' +
+                '<span class="error-text">Error: ' + escapeHtml(err.error || "Request failed") + "</span>" +
+                '<button class="retry-btn">Retry</button>' +
+                "</div>";
+            addTimeToWrapper(assistantBubble, "assistant");
+            assistantBubble.querySelector(".retry-btn").addEventListener("click", () => {
+                const row = assistantBubble.closest(".message-row");
+                if (row) row.remove();
+                messageInput.value = message;
+                chatForm.dispatchEvent(new Event("submit"));
+            });
+            return;
+        }
+
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";

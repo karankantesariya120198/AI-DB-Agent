@@ -1,13 +1,10 @@
 import os
 import re
 import time
-import logging
 import warnings
 import hashlib
 import threading
 import uuid as _uuid
-
-import yaml
 import sqlparse
 from sqlalchemy import text as sa_text
 from dotenv import load_dotenv
@@ -19,9 +16,31 @@ from langchain_community.agent_toolkits import SQLDatabaseToolkit
 from langgraph.checkpoint.memory import MemorySaver
 from typing import Dict, Any, List, Tuple, Optional, Union
 
+from config import (
+    CACHE_TTL,
+    DEFAULT_AGENT_MAX_TOKENS,
+    DEFAULT_AGENT_MODEL,
+    DEFAULT_AGENT_TEMPERATURE,
+    DEFAULT_DB_HOST,
+    DEFAULT_DB_PATH,
+    DEFAULT_DB_TYPE,
+    DEFAULT_MYSQL_PORT,
+    DEFAULT_POSTGRESQL_PORT,
+    MAX_QUERY_RETRIES,
+    PAGE_SIZE,
+    QUERY_TIMEOUT,
+)
+from helper import (
+    get_logger,
+    load_yaml_config,
+    normalize_content,
+    normalize_sql,
+    execute_with_timeout,
+)
+
 load_dotenv()
 
-logger = logging.getLogger("tms_chatbot.agent")
+logger = get_logger("agent")
 
 
 # ---------------------------------------------------------------------------
@@ -58,12 +77,10 @@ class QueryCache:
 # Database Agent
 # ---------------------------------------------------------------------------
 class DatabaseAgent:
-    QUERY_TIMEOUT = 30  # seconds
-    PAGE_SIZE = 10
 
     def __init__(self, config_path: str = None):
         self.config = self._load_config(config_path)
-        self.query_cache = QueryCache(ttl=300)
+        self.query_cache = QueryCache(ttl=CACHE_TTL)
 
         # Pagination: stores original (unlimited) queries keyed by query_id
         self.paginated_queries: Dict[str, Dict] = {}
@@ -71,10 +88,10 @@ class DatabaseAgent:
 
         llm_config = self.config.get("llm", {})
         self.llm = ChatAnthropic(
-            model=llm_config.get("model", "claude-sonnet-4-20250514"),
-            temperature=llm_config.get("temperature", 0.1),
+            model=llm_config.get("model", DEFAULT_AGENT_MODEL),
+            temperature=llm_config.get("temperature", DEFAULT_AGENT_TEMPERATURE),
             anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
-            max_tokens=llm_config.get("max_tokens", 4096),
+            max_tokens=llm_config.get("max_tokens", DEFAULT_AGENT_MAX_TOKENS),
         )
 
         self.setup_database()
@@ -85,8 +102,7 @@ class DatabaseAgent:
     def _load_config(self, config_path: str = None) -> dict:
         path = config_path or os.getenv("AGENT_CONFIG", "config.yaml")
         try:
-            with open(path, "r") as f:
-                config = yaml.safe_load(f)
+            config = load_yaml_config(path)
             logger.info("Loaded config from: %s", path)
             return config
         except FileNotFoundError:
@@ -99,23 +115,23 @@ class DatabaseAgent:
         warnings.filterwarnings("ignore", message=".*Cannot correctly sort tables.*")
 
         try:
-            db_type = os.getenv("DB_TYPE", "sqlite")
+            db_type = os.getenv("DB_TYPE", DEFAULT_DB_TYPE)
 
             if db_type == "sqlite":
-                db_path = os.getenv("DB_PATH", "database.db")
+                db_path = os.getenv("DB_PATH", DEFAULT_DB_PATH)
                 db_uri = f"sqlite:///{db_path}"
             elif db_type == "mysql":
                 user = os.getenv("DB_USER")
                 password = os.getenv("DB_PASSWORD")
-                host = os.getenv("DB_HOST", "localhost")
-                port = os.getenv("DB_PORT", "3306")
+                host = os.getenv("DB_HOST", DEFAULT_DB_HOST)
+                port = os.getenv("DB_PORT", DEFAULT_MYSQL_PORT)
                 database = os.getenv("DB_NAME")
                 db_uri = f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}"
             elif db_type == "postgresql":
                 user = os.getenv("DB_USER")
                 password = os.getenv("DB_PASSWORD")
-                host = os.getenv("DB_HOST", "localhost")
-                port = os.getenv("DB_PORT", "5432")
+                host = os.getenv("DB_HOST", DEFAULT_DB_HOST)
+                port = os.getenv("DB_PORT", DEFAULT_POSTGRESQL_PORT)
                 database = os.getenv("DB_NAME")
                 db_uri = f"postgresql://{user}:{password}@{host}:{port}/{database}"
             else:
@@ -184,51 +200,22 @@ class DatabaseAgent:
 
     def _execute_with_timeout(self, query: str) -> str:
         """Execute a SQL query with a timeout."""
-        result = [None]
-        error = [None]
-
-        def run():
-            try:
-                result[0] = self.db.run(query)
-            except Exception as e:
-                error[0] = e
-
-        thread = threading.Thread(target=run)
-        thread.start()
-        thread.join(timeout=self.QUERY_TIMEOUT)
-
-        if thread.is_alive():
-            return f"Error: Query timed out after {self.QUERY_TIMEOUT} seconds. Please try a simpler query."
-
-        if error[0]:
-            return f"Error executing query: {str(error[0])}"
-
-        return result[0]
+        return execute_with_timeout(
+            lambda: self.db.run(query),
+            timeout=QUERY_TIMEOUT,
+            timeout_msg=f"Error: Query timed out after {QUERY_TIMEOUT} seconds. Please try a simpler query.",
+        )
 
     def _execute_structured(self, query: str) -> Union[Tuple[List[str], List[list]], str]:
         """Execute a query and return (columns, rows) or an error string."""
-        result = [None]
-        error = [None]
+        def run_query():
+            with self.db._engine.connect() as conn:
+                cursor = conn.execute(sa_text(query))
+                columns = list(cursor.keys())
+                rows = [list(r) for r in cursor.fetchall()]
+            return (columns, rows)
 
-        def run():
-            try:
-                with self.db._engine.connect() as conn:
-                    cursor = conn.execute(sa_text(query))
-                    columns = list(cursor.keys())
-                    rows = [list(r) for r in cursor.fetchall()]
-                result[0] = (columns, rows)
-            except Exception as e:
-                error[0] = e
-
-        thread = threading.Thread(target=run)
-        thread.start()
-        thread.join(timeout=self.QUERY_TIMEOUT)
-
-        if thread.is_alive():
-            return f"Error: Query timed out after {self.QUERY_TIMEOUT} seconds."
-        if error[0]:
-            return f"Error executing query: {str(error[0])}"
-        return result[0]
+        return execute_with_timeout(run_query, timeout=QUERY_TIMEOUT)
 
     @staticmethod
     def _has_limit(query: str) -> bool:
@@ -309,7 +296,7 @@ class DatabaseAgent:
 
             # --- Pagination: auto-limit queries without LIMIT --------
             if not self._has_limit(query):
-                probe_query = query.rstrip().rstrip(";") + f" LIMIT {self.PAGE_SIZE + 1}"
+                probe_query = normalize_sql(query) + f" LIMIT {PAGE_SIZE + 1}"
                 structured = self._execute_structured(probe_query)
 
                 if isinstance(structured, str):
@@ -320,8 +307,8 @@ class DatabaseAgent:
                     duration = time.time() - start
                     logger.info("Query executed in %.2fs (%d rows)", duration, len(rows))
 
-                    has_more = len(rows) > self.PAGE_SIZE
-                    display_rows = rows[: self.PAGE_SIZE]
+                    has_more = len(rows) > PAGE_SIZE
+                    display_rows = rows[: PAGE_SIZE]
 
                     # Format like db.run() so the LLM sees a familiar string
                     result_str = str([tuple(r) for r in display_rows])
@@ -336,10 +323,10 @@ class DatabaseAgent:
                             "query_id": qid,
                             "has_more": True,
                             "page": 1,
-                            "page_size": self.PAGE_SIZE,
+                            "page_size": PAGE_SIZE,
                             "columns": columns,
                         }
-                        result_str += f"\n(Showing first {self.PAGE_SIZE} rows — more available)"
+                        result_str += f"\n(Showing first {PAGE_SIZE} rows — more available)"
                     else:
                         self._last_pagination = None
 
@@ -450,7 +437,7 @@ class DatabaseAgent:
     # Query execution
     # -------------------------------------------------------------------
     def query(self, user_input: str, thread_id: str = "default") -> Dict[str, Any]:
-        max_retries = 2
+        max_retries = MAX_QUERY_RETRIES
 
         try:
             enhanced_input = user_input
@@ -529,7 +516,7 @@ class DatabaseAgent:
         if validation_error:
             return {"error": validation_error}
 
-        paginated_sql = sql.rstrip().rstrip(";") + f" LIMIT {page_size + 1} OFFSET {offset}"
+        paginated_sql = normalize_sql(sql) + f" LIMIT {page_size + 1} OFFSET {offset}"
         structured = self._execute_structured(paginated_sql)
 
         if isinstance(structured, str):
@@ -556,25 +543,8 @@ class DatabaseAgent:
 
     @staticmethod
     def _extract_text(content) -> str:
-        """Normalize LLM message content to a plain string.
-
-        LangChain tool-calling agents can return content as a list of
-        content blocks (e.g. [{"type": "text", "text": "..."}]) instead of
-        a simple string.  This helper always returns a string.
-        """
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            parts = []
-            for block in content:
-                if isinstance(block, dict):
-                    parts.append(block.get("text", ""))
-                elif isinstance(block, str):
-                    parts.append(block)
-                else:
-                    parts.append(str(block))
-            return "\n".join(parts)
-        return str(content)
+        """Normalize LLM message content to a plain string."""
+        return normalize_content(content)
 
     def extract_sql_queries(self, text: str) -> list:
         # First try fenced code blocks

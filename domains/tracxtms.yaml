@@ -12,8 +12,8 @@
 domain:
   name: "Tracx TMS AI Agent"
   icon: "&#x1F69B;"
-  description: "Ask questions about your loads, trips, drivers, customers, equipment & settlements"
-  placeholder: "Ask about loads, drivers, customers, equipment, settlements..."
+  description: "Ask questions about your loads, trips, drivers, customers, equipment"
+  placeholder: "Ask about loads, drivers, customers, equipment..."
 
 # LLM settings
 llm:

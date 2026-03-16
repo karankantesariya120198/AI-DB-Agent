@@ -7,13 +7,14 @@ can skip the multi-step LLM agent pipeline for known question patterns.
 
 import os
 import re
-import logging
 from dataclasses import dataclass
 from typing import Dict, Any, Set
 
 import yaml
 
-logger = logging.getLogger("tms_chatbot.query_templates")
+from helper import get_logger, load_yaml_config
+
+logger = get_logger("query_templates")
 
 
 @dataclass
@@ -51,8 +52,7 @@ def load_templates(config_path: str = None) -> tuple:
     path = config_path or os.getenv("AGENT_CONFIG", "config.yaml")
 
     try:
-        with open(path, "r") as f:
-            config = yaml.safe_load(f)
+        config = load_yaml_config(path)
     except (FileNotFoundError, yaml.YAMLError) as exc:
         logger.warning("Could not load templates from %s: %s", path, exc)
         return {}, set()

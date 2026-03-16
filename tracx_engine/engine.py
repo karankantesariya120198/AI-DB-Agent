@@ -8,9 +8,7 @@ agent for common queries.  Falls back to the full agent for unknown intents.
 
 import os
 import time
-import logging
 import hashlib
-import threading
 import uuid as _uuid
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -19,22 +17,22 @@ from typing import Dict, Any, List, Optional, Tuple, Union
 import anthropic
 from sqlalchemy import text as sa_text
 
+from config import (
+    CLASSIFY_MAX_TOKENS,
+    CLASSIFY_MODEL,
+    CONFIDENCE_THRESHOLD,
+    CONTEXT_CLEANUP_INTERVAL,
+    ENTITY_KEYS,
+    FORMAT_MAX_TOKENS,
+    FORMAT_MODEL,
+    PAGE_SIZE,
+    QUERY_TIMEOUT,
+    SESSION_TTL,
+)
+from helper import get_logger, execute_with_timeout, normalize_sql
 from tracx_engine.templates import TEMPLATES, QueryTemplate, DETAIL_INTENTS
 
-logger = logging.getLogger("tms_chatbot.query_engine")
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-CLASSIFY_MODEL = "claude-haiku-4-5-20251001"
-
-# Entity keys tracked across conversation turns
-ENTITY_KEYS = frozenset({
-    "customer_name", "driver_name", "load_id", "equipment_name",
-    "trip_id", "ponum", "location", "status",
-})
-
-SESSION_TTL = 1800  # 30 minutes
+logger = get_logger("query_engine")
 
 
 @dataclass
@@ -69,11 +67,6 @@ class SessionContext:
         self.entities.clear()
         self.last_intent = ""
         self.updated_at = time.time()
-
-
-FORMAT_MODEL = "claude-haiku-4-5-20251001"
-QUERY_TIMEOUT = 30
-PAGE_SIZE = 10
 
 
 class QueryEngine:
@@ -118,7 +111,7 @@ class QueryEngine:
 
         # Periodic cleanup of expired sessions
         self._query_count += 1
-        if self._query_count % 100 == 0:
+        if self._query_count % CONTEXT_CLEANUP_INTERVAL == 0:
             self._cleanup_expired_contexts()
 
         try:
@@ -126,7 +119,7 @@ class QueryEngine:
             intent = classification.get("intent", "unknown")
             confidence = classification.get("confidence", 0)
 
-            if intent != "unknown" and intent in TEMPLATES and confidence >= 0.6:
+            if intent != "unknown" and intent in TEMPLATES and confidence >= CONFIDENCE_THRESHOLD:
                 params = classification.get("params", {})
                 logger.info(
                     "Template hit: intent=%s confidence=%.2f params=%s",
@@ -266,7 +259,7 @@ Rules:
 - For limit parameters, default to 10 if not specified.
 - If the user asks something off-topic (not about loads, drivers, customers, equipment, settlements), return unknown.
 - If the message is ambiguous between multiple intents, pick the most likely one.
-- Return confidence < 0.6 if you're unsure.
+- Return confidence < {CONFIDENCE_THRESHOLD} if you're unsure.
 - Always call the classify tool with your answer.
 - When the user uses pronouns like "their", "them", "that customer", "that driver", resolve them using the conversation context below.
 - When a pronoun is ambiguous (e.g. "their loads" and context has both a customer and driver), prefer the entity most related to the last_intent."""
@@ -279,7 +272,7 @@ Rules:
         try:
             resp = self.client.messages.create(
                 model=CLASSIFY_MODEL,
-                max_tokens=300,
+                max_tokens=CLASSIFY_MAX_TOKENS,
                 system=system_prompt,
                 messages=[{"role": "user", "content": message}],
                 tools=tools,
@@ -365,32 +358,26 @@ Rules:
         self, sql: str, params: Dict[str, Any]
     ) -> Union[Tuple[List[str], List[list]], str]:
         """Execute parameterized SQL with timeout and pagination."""
-        result = [None]
-        error = [None]
-
         # Probe with LIMIT for pagination
-        probe_sql = sql.rstrip().rstrip(";") + f" LIMIT {PAGE_SIZE + 1}"
+        probe_sql = normalize_sql(sql) + f" LIMIT {PAGE_SIZE + 1}"
 
-        def run():
-            try:
-                with self.agent.db._engine.connect() as conn:
-                    cursor = conn.execute(sa_text(probe_sql), params)
-                    columns = list(cursor.keys())
-                    rows = [list(r) for r in cursor.fetchall()]
-                result[0] = (columns, rows)
-            except Exception as e:
-                error[0] = e
+        def run_query():
+            with self.agent.db._engine.connect() as conn:
+                cursor = conn.execute(sa_text(probe_sql), params)
+                columns = list(cursor.keys())
+                rows = [list(r) for r in cursor.fetchall()]
+            return (columns, rows)
 
-        thread = threading.Thread(target=run)
-        thread.start()
-        thread.join(timeout=QUERY_TIMEOUT)
+        result = execute_with_timeout(
+            run_query,
+            timeout=QUERY_TIMEOUT,
+            timeout_msg=f"Query timed out after {QUERY_TIMEOUT} seconds.",
+        )
 
-        if thread.is_alive():
-            return f"Query timed out after {QUERY_TIMEOUT} seconds."
-        if error[0]:
-            return f"Error executing query: {str(error[0])}"
+        if isinstance(result, str):
+            return result
 
-        columns, rows = result[0]
+        columns, rows = result
         has_more = len(rows) > PAGE_SIZE
         display_rows = rows[:PAGE_SIZE]
 
@@ -537,7 +524,7 @@ Rules:
         try:
             resp = self.client.messages.create(
                 model=FORMAT_MODEL,
-                max_tokens=500,
+                max_tokens=FORMAT_MAX_TOKENS,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_message}],
             )
