@@ -10,10 +10,10 @@
 
 # UI settings — controls what the user sees in the browser
 domain:
-  name: "TMS AI Agent"
+  name: "Tracx TMS AI Agent"
   icon: "&#x1F69B;"
-  description: "Ask questions about your loads, trips, drivers, equipment & settlements"
-  placeholder: "Ask about loads, drivers, equipment, settlements..."
+  description: "Ask questions about your loads, trips, drivers, customers, equipment & settlements"
+  placeholder: "Ask about loads, drivers, customers, equipment, settlements..."
 
 # LLM settings
 llm:
@@ -43,6 +43,7 @@ database:
     - rate_types
     - loads_trips
     - settlements
+    - name_addresses_contact_lines
 
 # =============================================================================
 # Dispatch grid views — maps each page to its visible columns
@@ -88,6 +89,56 @@ views:
         label: "Invoice To Name"
         source: "name_addresses.company_name"
         join: "LEFT JOIN name_addresses AS invoiceTo ON loads.invoice_to_id = invoiceTo.id"
+      # --- Customer detail columns (from name_addresses via loads.invoice_to_id) ---
+      - field: "invoiceTo.contact"
+        label: "Customer Contact"
+        source: "name_addresses.contact"
+        join: "LEFT JOIN name_addresses AS invoiceTo ON loads.invoice_to_id = invoiceTo.id"
+      - field: "invoiceTo.phone"
+        label: "Customer Phone"
+        source: "name_addresses.phone"
+      - field: "invoiceTo.email"
+        label: "Customer Email"
+        source: "name_addresses.email"
+      - field: "invoiceTo.address_1"
+        label: "Customer Address"
+        source: "name_addresses.address_1"
+      - field: "invoiceTo.city"
+        label: "Customer City"
+        source: "name_addresses.city"
+      - field: "invoiceTo.province"
+        label: "Customer Province"
+        source: "name_addresses.province"
+      - field: "invoiceTo.country"
+        label: "Customer Country"
+        source: "name_addresses.country"
+      - field: "invoiceTo.postal_code"
+        label: "Customer Postal Code"
+        source: "name_addresses.postal_code"
+      - field: "invoiceTo.credit_limit"
+        label: "Customer Credit Limit"
+        source: "name_addresses.credit_limit"
+      - field: "invoiceTo.currency_type"
+        label: "Customer Currency"
+        source: "name_addresses.currency_type"
+      - field: "invoiceTo.notes"
+        label: "Customer Notes"
+        source: "name_addresses.notes"
+      - field: "invoiceTo.billing_address_1"
+        label: "Billing Address"
+        source: "name_addresses.billing_address_1"
+      - field: "invoiceTo.billing_city"
+        label: "Billing City"
+        source: "name_addresses.billing_city"
+      - field: "invoiceTo.billing_province"
+        label: "Billing Province"
+        source: "name_addresses.billing_province"
+      - field: "invoiceTo.billing_country"
+        label: "Billing Country"
+        source: "name_addresses.billing_country"
+      - field: "invoiceTo.billing_postal_code"
+        label: "Billing Postal Code"
+        source: "name_addresses.billing_postal_code"
       - field: "loads.load_total - loads.load_tax_total"
         label: "Sale $"
         source: "loads.load_total minus loads.load_tax_total"
@@ -114,22 +165,87 @@ views:
         join: "LEFT JOIN loads_terminal ON loads_terminal.load_id = loads.id LEFT JOIN terminal ON terminal.id = loads_terminal.terminal_id"
         note: "GROUP_CONCAT(DISTINCT terminal.name) — a load can have multiple terminals"
 
-      # --- Settlement-derived columns (via pivot table) ---
+      # --- Driver details (via settlement pivot → drivers table) ---
       - field: "drivers.reference_name"
         label: "Driver/Carrier"
         source: "drivers.reference_name via load_driver_settlements"
         join: "LEFT JOIN loads_load_driver_settlements ON loads.id = loads_load_driver_settlements.load_id LEFT JOIN load_driver_settlements ON loads_load_driver_settlements.driver_settlement_id = load_driver_settlements.id LEFT JOIN drivers ON drivers.id = load_driver_settlements.driver_id"
         note: "GROUP_CONCAT(DISTINCT drivers.reference_name) — multiple drivers possible"
+      - field: "drivers.phone"
+        label: "Driver Phone"
+        source: "drivers.phone via load_driver_settlements → drivers"
+      - field: "drivers.email"
+        label: "Driver Email"
+        source: "drivers.email via load_driver_settlements → drivers"
+      - field: "drivers.licence"
+        label: "Driver Licence"
+        source: "drivers.licence via load_driver_settlements → drivers"
+      - field: "drivers.status"
+        label: "Driver Status"
+        source: "drivers.status via load_driver_settlements → drivers"
+        note: "Active/inactive status of the driver"
+      - field: "drivers.owner_operator"
+        label: "Owner Operator"
+        source: "drivers.owner_operator via load_driver_settlements → drivers"
+        note: "Whether the driver is an owner-operator"
+      - field: "drivers.payment_type"
+        label: "Driver Pay Type"
+        source: "drivers.payment_type via load_driver_settlements → drivers"
+      - field: "drivers.city"
+        label: "Driver City"
+        source: "drivers.city via load_driver_settlements → drivers"
+      - field: "drivers.province"
+        label: "Driver Province"
+        source: "drivers.province via load_driver_settlements → drivers"
+
+      # --- Equipment details (via settlement pivot → equipment table) ---
       - field: "equipment.name"
         label: "Equipment Used"
         source: "equipment.name via load_driver_settlements"
         join: "LEFT JOIN equipment AS truck ON load_driver_settlements.truck_id = truck.id LEFT JOIN equipment AS equip1 ON load_driver_settlements.equip1_id = equip1.id LEFT JOIN equipment AS equip2 ON load_driver_settlements.equip2_id = equip2.id"
         note: "CONCAT_WS(', ', truck.name, equip1.name, equip2.name)"
+      - field: "truck.name"
+        label: "Truck"
+        source: "equipment.name via load_driver_settlements.truck_id"
+        note: "LEFT JOIN equipment AS truck ON load_driver_settlements.truck_id = truck.id"
+      - field: "equip1.name"
+        label: "Trailer 1"
+        source: "equipment.name via load_driver_settlements.equip1_id"
+        note: "LEFT JOIN equipment AS equip1 ON load_driver_settlements.equip1_id = equip1.id"
+      - field: "equip2.name"
+        label: "Trailer 2"
+        source: "equipment.name via load_driver_settlements.equip2_id"
+        note: "LEFT JOIN equipment AS equip2 ON load_driver_settlements.equip2_id = equip2.id"
+      - field: "truck.licence_plate"
+        label: "Truck Plate"
+        source: "equipment.licence_plate via load_driver_settlements.truck_id"
+      - field: "truck.vin"
+        label: "Truck VIN"
+        source: "equipment.vin via load_driver_settlements.truck_id"
+      - field: "truck.model"
+        label: "Truck Model"
+        source: "equipment.model via load_driver_settlements.truck_id"
+      - field: "truck.fuel_type"
+        label: "Fuel Type"
+        source: "equipment.fuel_type via load_driver_settlements.truck_id"
+      - field: "truck.status"
+        label: "Truck Status"
+        source: "equipment.status via load_driver_settlements.truck_id"
+
+      # --- Settlement columns ---
       - field: "SUM(load_driver_settlements.total_amount)"
         label: "Settlement $"
         source: "load_driver_settlements.total_amount"
         join: "Via loads_load_driver_settlements pivot"
         note: "SUM(load_driver_settlements.total_amount)"
+      - field: "load_driver_settlements.pay_amount"
+        label: "Driver Pay"
+        source: "load_driver_settlements.pay_amount"
+        join: "Via loads_load_driver_settlements pivot"
+      - field: "load_driver_settlements.fsc_amount"
+        label: "Driver FSC"
+        source: "load_driver_settlements.fsc_amount"
+        join: "Via loads_load_driver_settlements pivot"
       - field: "load_driver_settlements.shift_started_at"
         label: "Start Shift"
         source: "load_driver_settlements.shift_started_at"
@@ -141,6 +257,10 @@ views:
       - field: "TIMESTAMPDIFF(MINUTE, shift_started_at, shift_end_at)"
         label: "Shift Hours"
         note: "Computed: TIMESTAMPDIFF between Start Shift and End Shift, formatted as HH:MM"
+      - field: "load_driver_settlements.confirmed_at"
+        label: "Driver Confirmed At"
+        source: "load_driver_settlements.confirmed_at"
+        join: "Via loads_load_driver_settlements pivot"
 
     # Columns from load_destinations + locations (Shipper = first stop, Consignee = last stop)
     destination_columns:
@@ -171,6 +291,127 @@ views:
       - field: "route_timeliness"
         label: "Route Timeliness"
         note: "Computed per stop: 1=arrived&departed, 2=in progress, 3=pending, 4=not started"
+
+  customers:
+    description: "Customers grid (name-addresses)"
+    endpoint: "/name-addresses"
+    # Columns from the NameAddressController customIndexStatement
+    # This is a direct query on name_addresses table — no JOINs needed
+    grid_columns:
+      - field: "name_addresses.company_name"
+        label: "Customer Name"
+        source: "name_addresses.company_name"
+      - field: "name_addresses.contact"
+        label: "Contact Person"
+        source: "name_addresses.contact"
+      - field: "name_addresses.phone"
+        label: "Phone"
+        source: "name_addresses.phone"
+      - field: "name_addresses.fax"
+        label: "Fax"
+        source: "name_addresses.fax"
+      - field: "name_addresses.email"
+        label: "Email"
+        source: "name_addresses.email"
+      - field: "name_addresses.address_1"
+        label: "Address"
+        source: "name_addresses.address_1"
+      - field: "name_addresses.address_2"
+        label: "Address 2"
+        source: "name_addresses.address_2"
+      - field: "name_addresses.city"
+        label: "City"
+        source: "name_addresses.city"
+      - field: "name_addresses.province"
+        label: "Province/State"
+        source: "name_addresses.province"
+      - field: "name_addresses.country"
+        label: "Country"
+        source: "name_addresses.country"
+      - field: "name_addresses.postal_code"
+        label: "Postal Code"
+        source: "name_addresses.postal_code"
+      - field: "name_addresses.billing_address_1"
+        label: "Billing Address"
+        source: "name_addresses.billing_address_1"
+      - field: "name_addresses.billing_address_2"
+        label: "Billing Address 2"
+        source: "name_addresses.billing_address_2"
+      - field: "name_addresses.billing_city"
+        label: "Billing City"
+        source: "name_addresses.billing_city"
+      - field: "name_addresses.billing_province"
+        label: "Billing Province"
+        source: "name_addresses.billing_province"
+      - field: "name_addresses.billing_country"
+        label: "Billing Country"
+        source: "name_addresses.billing_country"
+      - field: "name_addresses.billing_postal_code"
+        label: "Billing Postal Code"
+        source: "name_addresses.billing_postal_code"
+      - field: "name_addresses.credit_limit"
+        label: "Credit Limit"
+        source: "name_addresses.credit_limit"
+      - field: "name_addresses.warn_within"
+        label: "Warn Within"
+        source: "name_addresses.warn_within"
+        note: "Threshold for credit limit warning"
+      - field: "name_addresses.currency_type"
+        label: "Currency"
+        source: "name_addresses.currency_type"
+      - field: "name_addresses.status"
+        label: "Status"
+        source: "name_addresses.status"
+      - field: "name_addresses.user_status"
+        label: "User Status"
+        source: "name_addresses.user_status"
+      - field: "name_addresses.notes"
+        label: "Notes"
+        source: "name_addresses.notes"
+      - field: "name_addresses.accounting_code"
+        label: "Accounting Code"
+        source: "name_addresses.accounting_code"
+      - field: "name_addresses.sales_person"
+        label: "Sales Person"
+        source: "name_addresses.sales_person"
+        note: "FK to users.id — JOIN users ON name_addresses.sales_person = users.id for name"
+      - field: "name_addresses.customer_id"
+        label: "External Customer ID"
+        source: "name_addresses.customer_id"
+
+    # Columns from name_addresses_contact_lines (multiple rows per customer)
+    contact_lines_columns:
+      - field: "name_addresses_contact_lines.contact_name"
+        label: "Contact Name"
+        source: "name_addresses_contact_lines.contact_name"
+      - field: "name_addresses_contact_lines.contact_phone"
+        label: "Contact Phone"
+        source: "name_addresses_contact_lines.contact_phone"
+      - field: "name_addresses_contact_lines.contact_phone_ext"
+        label: "Contact Phone Ext"
+        source: "name_addresses_contact_lines.contact_phone_ext"
+      - field: "name_addresses_contact_lines.contact_email"
+        label: "Contact Email"
+        source: "name_addresses_contact_lines.contact_email"
+      - field: "name_addresses_contact_lines.auto_sms"
+        label: "Auto SMS"
+        source: "name_addresses_contact_lines.auto_sms"
+      - field: "name_addresses_contact_lines.auto_email"
+        label: "Auto Email"
+        source: "name_addresses_contact_lines.auto_email"
+      - field: "name_addresses_contact_lines.auto_email_invoice"
+        label: "Auto Email Invoice"
+        source: "name_addresses_contact_lines.auto_email_invoice"
+      - field: "name_addresses_contact_lines.auto_email_invoice_attachment"
+        label: "Auto Email Invoice Attachment"
+        source: "name_addresses_contact_lines.auto_email_invoice_attachment"
+      - field: "name_addresses_contact_lines.auto_load_status"
+        label: "Auto Load Status"
+        source: "name_addresses_contact_lines.auto_load_status"
+      - field: "name_addresses_contact_lines.geofence_alert"
+        label: "Geofence Alert"
+        source: "name_addresses_contact_lines.geofence_alert"
+    contact_lines_join: "name_addresses_contact_lines.name_addresses_id = name_addresses.id"
 
   dispatch_usps:
     description: "USPS dispatch loads grid"
@@ -228,14 +469,54 @@ views:
         label: "Customer"
         source: "name_addresses.company_name"
         join: "LEFT JOIN name_addresses AS invoiceTo ON loads.invoice_to_id = invoiceTo.id"
+      - field: "invoiceTo.contact"
+        label: "Customer Contact"
+        source: "name_addresses.contact"
+      - field: "invoiceTo.phone"
+        label: "Customer Phone"
+        source: "name_addresses.phone"
+      - field: "invoiceTo.email"
+        label: "Customer Email"
+        source: "name_addresses.email"
+      - field: "invoiceTo.city"
+        label: "Customer City"
+        source: "name_addresses.city"
+      - field: "invoiceTo.province"
+        label: "Customer Province"
+        source: "name_addresses.province"
+      - field: "invoiceTo.credit_limit"
+        label: "Customer Credit Limit"
+        source: "name_addresses.credit_limit"
       - field: "dispatcher.name"
         label: "Dispatcher"
         source: "users.name"
         join: "LEFT JOIN users AS dispatcher ON loads.dispatcher_id = dispatcher.id"
+      # --- Driver details ---
       - field: "drivers.reference_name"
         label: "Driver/Carrier"
         source: "drivers.reference_name via load_driver_settlements"
         join: "Via loads_load_driver_settlements pivot → load_driver_settlements → drivers"
+        note: "GROUP_CONCAT(DISTINCT drivers.reference_name)"
+      - field: "drivers.phone"
+        label: "Driver Phone"
+        source: "drivers.phone via load_driver_settlements → drivers"
+      - field: "drivers.email"
+        label: "Driver Email"
+        source: "drivers.email via load_driver_settlements → drivers"
+      - field: "drivers.status"
+        label: "Driver Status"
+        source: "drivers.status via load_driver_settlements → drivers"
+      # --- Equipment details ---
+      - field: "truck.name"
+        label: "Truck"
+        source: "equipment.name via load_driver_settlements.truck_id"
+      - field: "equip1.name"
+        label: "Trailer 1"
+        source: "equipment.name via load_driver_settlements.equip1_id"
+      - field: "truck.licence_plate"
+        label: "Truck Plate"
+        source: "equipment.licence_plate via load_driver_settlements.truck_id"
+      # --- Settlement ---
       - field: "SUM(load_driver_settlements.total_amount)"
         label: "Settlement $"
         source: "load_driver_settlements.total_amount"
@@ -298,7 +579,7 @@ table_joins:
 
   # Reference lookups
   - join: "LEFT JOIN name_addresses AS invoiceTo ON loads.invoice_to_id = invoiceTo.id"
-    purpose: "Get customer/invoice-to company name"
+    purpose: "Get customer details: company_name, contact, phone, email, address, city, province, country, postal_code, billing address fields, credit_limit, warn_within, currency_type, status, notes"
   - join: "JOIN users AS creator ON loads.createdby_id = creator.id"
     purpose: "Get creator user name"
   - join: "LEFT JOIN users AS dispatcher ON loads.dispatcher_id = dispatcher.id"
@@ -320,13 +601,17 @@ table_joins:
   - join: "LEFT JOIN settlements ON load_driver_settlements.settlement_id = settlements.id"
     purpose: "Get settlement date"
 
+  # Customer contact lines (multiple contacts per customer)
+  - join: "LEFT JOIN name_addresses_contact_lines ON name_addresses_contact_lines.name_addresses_id = name_addresses.id"
+    purpose: "Get customer contact lines (multiple contacts per customer)"
+
 # Variables that must be applied to every SQL query
 # The agent will be instructed to always filter by these values
 query_variables:
   org_id: 418   # Change this to your organization's ID
 
 # The message shown when a user asks an off-topic question
-domain_restriction_message: "I can only help with questions about loads, trips, destinations, drivers, equipment, and driver settlements. Please ask me something related to your TMS data."
+domain_restriction_message: "I can only help with questions about loads, trips, destinations, drivers, customers, equipment, and driver settlements. Please ask me something related to your TMS data."
 
 # System prompt template
 # Available placeholders: {table_names}, {domain_name}, {domain_restriction_message},
@@ -334,10 +619,10 @@ domain_restriction_message: "I can only help with questions about loads, trips, 
 #   and any key from query_variables (e.g. {org_id})
 system_prompt: |
   You are a specialized TMS (Transportation Management System) database assistant.
-  You ONLY answer questions related to loads, trips, destinations, drivers, equipment, and driver settlements.
+  You ONLY answer questions related to loads, trips, destinations, drivers, customers, equipment, and driver settlements.
 
   STRICT RULES:
-  - You must ONLY answer questions about: loads, load destinations, driver settlements, drivers, and equipment.
+  - You must ONLY answer questions about: loads, load destinations, driver settlements, drivers, customers, and equipment.
   - If a user asks anything unrelated to these topics (e.g. general knowledge, coding, weather, math, personal questions, etc.), politely decline and say: "{domain_restriction_message}"
   - Do NOT answer general questions even if you know the answer.
   - Do NOT generate SQL for tables outside the allowed list.
@@ -347,8 +632,33 @@ system_prompt: |
 
   When a user asks about "loads" or "dispatch", use the dispatch view columns.
   When a user asks about "USPS loads" or "USPS dispatch", use the dispatch_usps view columns.
+  When a user asks about "customers", "name addresses", or customer details, use the customers view columns.
+  When a user asks about a customer's loads, JOIN loads with name_addresses via loads.invoice_to_id = name_addresses.id.
   When a user asks about a specific column (e.g., "show me the tracking number"), identify which view it belongs to and query that field.
   Always SELECT only the relevant columns from the grid view, not all columns from the table.
+
+  DEFAULT COLUMNS FOR LOAD QUERIES:
+  Whenever a user asks about loads (e.g. "show loads", "en route loads", "today's loads", etc.),
+  ALWAYS include these columns by default along with any specifically requested columns:
+    - loads.show_id (Load #)
+    - load_statuses.status_name (Status)
+    - loads.ship_date (Ship Date)
+    - loads.delivery_date (Delivery Date)
+    - loads.rate (Rate)
+    - loads.distance (Distance)
+    - invoiceTo.company_name (Customer)
+    - GROUP_CONCAT(DISTINCT drivers.reference_name) (Driver/Carrier)
+    - GROUP_CONCAT(DISTINCT truck.name) (Truck)
+    - GROUP_CONCAT(DISTINCT equip1.name) (Trailer)
+  This requires the full JOIN chain:
+    JOIN load_statuses ON loads.status_id = load_statuses.id
+    LEFT JOIN name_addresses AS invoiceTo ON loads.invoice_to_id = invoiceTo.id
+    LEFT JOIN loads_load_driver_settlements ON loads.id = loads_load_driver_settlements.load_id
+    LEFT JOIN load_driver_settlements ON loads_load_driver_settlements.driver_settlement_id = load_driver_settlements.id
+    LEFT JOIN drivers ON drivers.id = load_driver_settlements.driver_id
+    LEFT JOIN equipment AS truck ON load_driver_settlements.truck_id = truck.id
+    LEFT JOIN equipment AS equip1 ON load_driver_settlements.equip1_id = equip1.id
+  Always GROUP BY loads.id (and other non-aggregated columns) when using these JOINs.
 
   CRITICAL TABLE RELATIONSHIPS — use these JOINs when building queries:
   {table_join_instructions}
@@ -357,10 +667,26 @@ system_prompt: |
   - Status name: JOIN load_statuses ON loads.status_id = load_statuses.id → use load_statuses.status_name
   - Driver name: loads → loads_load_driver_settlements (pivot) → load_driver_settlements → drivers.reference_name
     Multiple drivers possible, use GROUP_CONCAT(DISTINCT drivers.reference_name)
-  - Equipment: From load_driver_settlements → LEFT JOIN equipment for truck_id, equip1_id, equip2_id
+  - Driver details (phone, email, licence, status, city, province, owner_operator, payment_type):
+    Same JOIN path as driver name → access columns directly from drivers table
+    Example: SELECT drivers.reference_name, drivers.phone, drivers.email, drivers.status FROM loads
+    LEFT JOIN loads_load_driver_settlements ON loads.id = loads_load_driver_settlements.load_id
+    LEFT JOIN load_driver_settlements ON loads_load_driver_settlements.driver_settlement_id = load_driver_settlements.id
+    LEFT JOIN drivers ON drivers.id = load_driver_settlements.driver_id
+  - Equipment (truck, trailer 1, trailer 2): From load_driver_settlements → LEFT JOIN equipment for truck_id, equip1_id, equip2_id
+    Truck: LEFT JOIN equipment AS truck ON load_driver_settlements.truck_id = truck.id → truck.name, truck.licence_plate, truck.vin, truck.model, truck.fuel_type, truck.status
+    Trailer 1: LEFT JOIN equipment AS equip1 ON load_driver_settlements.equip1_id = equip1.id → equip1.name, equip1.licence_plate
+    Trailer 2: LEFT JOIN equipment AS equip2 ON load_driver_settlements.equip2_id = equip2.id → equip2.name, equip2.licence_plate
+    All equipment combined: CONCAT_WS(', ', truck.name, equip1.name, equip2.name)
   - Settlement $: SUM(load_driver_settlements.total_amount) via the pivot table
+  - Driver Pay: load_driver_settlements.pay_amount
+  - Driver FSC: load_driver_settlements.fsc_amount
+  - Driver Confirmed At: load_driver_settlements.confirmed_at
   - Sale $: loads.load_total - loads.load_tax_total
-  - Customer/Invoice To: LEFT JOIN name_addresses ON loads.invoice_to_id = name_addresses.id → name_addresses.company_name
+  - Customer/Invoice To (on loads): LEFT JOIN name_addresses AS invoiceTo ON loads.invoice_to_id = invoiceTo.id → invoiceTo.company_name, invoiceTo.contact, invoiceTo.phone, invoiceTo.email, invoiceTo.city, invoiceTo.province, invoiceTo.credit_limit, invoiceTo.billing_address_1, invoiceTo.billing_city
+  - Customer direct query: SELECT directly from name_addresses table — columns: company_name, contact, phone, fax, email, address_1, city, province, country, postal_code, billing_address_1, billing_city, billing_province, billing_country, billing_postal_code, credit_limit, warn_within, currency_type, status, user_status, notes, accounting_code, sales_person, customer_id
+  - Customer loads: To find all loads for a customer: SELECT ... FROM loads LEFT JOIN name_addresses AS invoiceTo ON loads.invoice_to_id = invoiceTo.id WHERE invoiceTo.company_name LIKE '%customer_name%'
+  - Customer credit: name_addresses.credit_limit (total limit), name_addresses.warn_within (warning threshold)
   - Creator: JOIN users AS creator ON loads.createdby_id = creator.id → creator.name
   - Dispatcher: LEFT JOIN users AS dispatcher ON loads.dispatcher_id = dispatcher.id → dispatcher.name
   - Load Category: LEFT JOIN loads_categories ON loads.category_id = loads_categories.id → loads_categories.name
@@ -388,3 +714,811 @@ system_prompt: |
   {query_filter_instructions}
 
   Remember: You can only perform read operations (SELECT queries). Stay focused on {domain_name} data only.
+
+# =============================================================================
+# SQL Fragments — reusable SQL pieces referenced via ${name} in query templates
+# =============================================================================
+sql_fragments:
+  load_base_cols: |
+    loads.show_id AS `Load #`,
+    load_statuses.status_name AS `Status`,
+    loads.ship_date AS `Ship Date`,
+    loads.delivery_date AS `Delivery Date`,
+    loads.rate AS `Rate`,
+    loads.distance AS `Distance`,
+    invoiceTo.company_name AS `Customer`,
+    GROUP_CONCAT(DISTINCT drivers.reference_name) AS `Driver`,
+    GROUP_CONCAT(DISTINCT truck.name) AS `Truck`,
+    GROUP_CONCAT(DISTINCT equip1.name) AS `Trailer`
+  load_base_joins: |
+    FROM loads
+    JOIN load_statuses ON loads.status_id = load_statuses.id
+    LEFT JOIN name_addresses AS invoiceTo ON loads.invoice_to_id = invoiceTo.id
+    LEFT JOIN loads_load_driver_settlements ON loads.id = loads_load_driver_settlements.load_id
+    LEFT JOIN load_driver_settlements ON loads_load_driver_settlements.driver_settlement_id = load_driver_settlements.id
+    LEFT JOIN drivers ON drivers.id = load_driver_settlements.driver_id
+    LEFT JOIN equipment AS truck ON load_driver_settlements.truck_id = truck.id
+    LEFT JOIN equipment AS equip1 ON load_driver_settlements.equip1_id = equip1.id
+  load_group_by: "GROUP BY loads.id ORDER BY loads.show_id DESC"
+
+# =============================================================================
+# Detail intents — rendered as bullet-point cards instead of tables
+# =============================================================================
+detail_intents:
+  - get_load_details
+  - get_customer_details
+  - get_customer_credit
+  - get_customer_billing_address
+  - get_customer_physical_address
+  - get_customer_portal_settings
+  - get_equipment_details
+  - get_driver_for_load
+  - get_settlement_for_load
+  - get_driver_earnings
+  - get_shift_times
+  - load_averages
+
+# =============================================================================
+# Query Templates — each key is the intent name used by the QueryEngine
+# =============================================================================
+query_templates:
+
+  # ========================== Loads (9) ======================================
+
+  get_loads:
+    description: "Show all loads / list loads"
+    sql: "SELECT ${load_base_cols} ${load_base_joins} WHERE loads.org_id = :org_id ${load_group_by}"
+    params: {}
+    response_hint: "Show a table of loads with default columns"
+
+  get_loads_by_status:
+    description: "Get loads filtered by status (En Route, Pending, Delivered, Dispatched, etc.)"
+    sql: "SELECT ${load_base_cols} ${load_base_joins} WHERE loads.org_id = :org_id AND load_statuses.status_name = :status ${load_group_by}"
+    params:
+      status:
+        type: string
+        required: true
+        description: "Status name like En Route, Pending, Delivered, Dispatched"
+    response_hint: "Show a table of loads with the given status"
+
+  get_loads_by_date:
+    description: "Get loads by ship date or delivery date range (today's loads, loads after a date, etc.)"
+    sql: |
+      SELECT ${load_base_cols} ${load_base_joins}
+      WHERE loads.org_id = :org_id
+        AND loads.ship_date >= :start_date
+        AND loads.ship_date <= :end_date
+      ${load_group_by}
+    params:
+      start_date:
+        type: date
+        required: true
+        description: "Start date (YYYY-MM-DD)"
+      end_date:
+        type: date
+        required: true
+        description: "End date (YYYY-MM-DD)"
+    response_hint: "Show a table of loads within the given date range"
+
+  get_loads_by_customer:
+    description: "Get loads for a specific customer"
+    sql: "SELECT ${load_base_cols} ${load_base_joins} WHERE loads.org_id = :org_id AND invoiceTo.company_name LIKE :customer_name ${load_group_by}"
+    params:
+      customer_name:
+        type: string
+        required: true
+        description: "Customer / company name"
+    response_hint: "Show loads for the specified customer"
+
+  get_loads_by_driver:
+    description: "Get loads assigned to a specific driver"
+    sql: "SELECT ${load_base_cols} ${load_base_joins} WHERE loads.org_id = :org_id AND drivers.reference_name LIKE :driver_name ${load_group_by}"
+    params:
+      driver_name:
+        type: string
+        required: true
+        description: "Driver name"
+    response_hint: "Show loads assigned to the specified driver"
+
+  get_loads_by_equipment:
+    description: "Get loads using a specific truck or equipment"
+    sql: "SELECT ${load_base_cols} ${load_base_joins} WHERE loads.org_id = :org_id AND (truck.name LIKE :equipment_name OR truck.licence_plate LIKE :equipment_name) ${load_group_by}"
+    params:
+      equipment_name:
+        type: string
+        required: true
+        description: "Truck name or licence plate"
+    response_hint: "Show loads using the specified equipment"
+
+  get_loads_by_po:
+    description: "Get load by PO number"
+    sql: "SELECT ${load_base_cols} ${load_base_joins} WHERE loads.org_id = :org_id AND loads.ponum LIKE :ponum ${load_group_by}"
+    params:
+      ponum:
+        type: string
+        required: true
+        description: "PO number"
+    response_hint: "Show load(s) matching the PO number"
+
+  get_loads_by_destination:
+    description: "Get loads picked up from or delivered to a location/city"
+    sql: |
+      SELECT ${load_base_cols},
+          GROUP_CONCAT(DISTINCT locations.company_name) AS `Location`,
+          GROUP_CONCAT(DISTINCT locations.city) AS `City`
+      ${load_base_joins}
+      JOIN load_destinations ON load_destinations.load_id = loads.id
+      JOIN locations ON locations.id = load_destinations.location_id
+      WHERE loads.org_id = :org_id
+        AND (locations.company_name LIKE :location OR locations.city LIKE :location)
+      ${load_group_by}
+    params:
+      location:
+        type: string
+        required: true
+        description: "Location name or city"
+    response_hint: "Show loads related to the specified location"
+
+  get_loads_by_trip:
+    description: "Get loads on a specific trip"
+    sql: "SELECT ${load_base_cols} ${load_base_joins} WHERE loads.org_id = :org_id AND loads.trip_id = :trip_id ${load_group_by}"
+    params:
+      trip_id:
+        type: integer
+        required: true
+        description: "Trip ID number"
+    response_hint: "Show loads on the specified trip"
+
+  # ========================== Load Details (1) ===============================
+
+  get_load_details:
+    description: "Get detailed info for a specific load by load number/ID"
+    sql: |
+      SELECT
+          loads.show_id AS `Load #`,
+          load_statuses.status_name AS `Status`,
+          loads.ponum AS `PO #`,
+          loads.trip_id AS `Trip #`,
+          loads.ship_date AS `Ship Date`,
+          loads.delivery_date AS `Delivery Date`,
+          loads.rate AS `Rate`,
+          loads.distance AS `Distance`,
+          loads.notes AS `Notes`,
+          (loads.load_total - loads.load_tax_total) AS `Sale $`,
+          invoiceTo.company_name AS `Customer`,
+          invoiceTo.contact AS `Customer Contact`,
+          invoiceTo.phone AS `Customer Phone`,
+          GROUP_CONCAT(DISTINCT drivers.reference_name) AS `Driver`,
+          GROUP_CONCAT(DISTINCT drivers.phone) AS `Driver Phone`,
+          GROUP_CONCAT(DISTINCT truck.name) AS `Truck`,
+          GROUP_CONCAT(DISTINCT equip1.name) AS `Trailer`,
+          GROUP_CONCAT(DISTINCT terminal.name) AS `Terminal`,
+          SUM(load_driver_settlements.total_amount) AS `Settlement $`,
+          creator.name AS `Creator`,
+          dispatcher.name AS `Dispatcher`
+      ${load_base_joins}
+      LEFT JOIN equipment AS equip2 ON load_driver_settlements.equip2_id = equip2.id
+      LEFT JOIN loads_terminal ON loads_terminal.load_id = loads.id
+      LEFT JOIN terminal ON terminal.id = loads_terminal.terminal_id
+      JOIN users AS creator ON loads.createdby_id = creator.id
+      LEFT JOIN users AS dispatcher ON loads.dispatcher_id = dispatcher.id
+      WHERE loads.org_id = :org_id AND loads.show_id = :load_id
+      ${load_group_by}
+    params:
+      load_id:
+        type: integer
+        required: true
+        description: "Load number (show_id)"
+    response_hint: "Show detailed information for this specific load"
+
+  # ========================== Drivers (5) ====================================
+
+  get_drivers:
+    description: "List all drivers"
+    sql: |
+      SELECT
+          drivers.reference_name AS `Driver`,
+          drivers.phone AS `Phone`,
+          drivers.email AS `Email`,
+          drivers.city AS `City`,
+          drivers.province AS `Province`,
+          drivers.status AS `Status`,
+          drivers.owner_operator AS `Owner Operator`,
+          drivers.payment_type AS `Pay Type`,
+          drivers.licence AS `Licence`
+      FROM drivers
+      WHERE drivers.org_id = :org_id
+    params: {}
+    response_hint: "Show a table of all drivers"
+
+  get_driver_for_load:
+    description: "Get the driver assigned to a specific load"
+    sql: |
+      SELECT
+          loads.show_id AS `Load #`,
+          drivers.reference_name AS `Driver`,
+          drivers.phone AS `Driver Phone`,
+          drivers.email AS `Driver Email`,
+          drivers.status AS `Driver Status`,
+          truck.name AS `Truck`,
+          truck.licence_plate AS `Truck Plate`
+      ${load_base_joins}
+      WHERE loads.org_id = :org_id AND loads.show_id = :load_id
+      ${load_group_by}
+    params:
+      load_id:
+        type: integer
+        required: true
+        description: "Load number (show_id)"
+    response_hint: "Show the driver assigned to this load"
+
+  get_driver_loads:
+    description: "Get all loads for a specific driver"
+    sql: "SELECT ${load_base_cols} ${load_base_joins} WHERE loads.org_id = :org_id AND drivers.reference_name LIKE :driver_name ${load_group_by}"
+    params:
+      driver_name:
+        type: string
+        required: true
+        description: "Driver name"
+    response_hint: "Show all loads assigned to this driver"
+
+  get_drivers_by_status:
+    description: "Get drivers filtered by status (active, inactive)"
+    sql: |
+      SELECT
+          drivers.reference_name AS `Driver`,
+          drivers.phone AS `Phone`,
+          drivers.email AS `Email`,
+          drivers.city AS `City`,
+          drivers.province AS `Province`,
+          drivers.status AS `Status`,
+          drivers.owner_operator AS `Owner Operator`
+      FROM drivers
+      WHERE drivers.org_id = :org_id AND drivers.status = :status
+    params:
+      status:
+        type: string
+        required: true
+        description: "Driver status (e.g. Active, Inactive)"
+    response_hint: "Show drivers with the specified status"
+
+  get_owner_operators:
+    description: "Get all owner-operators"
+    sql: |
+      SELECT
+          drivers.reference_name AS `Driver`,
+          drivers.phone AS `Phone`,
+          drivers.email AS `Email`,
+          drivers.city AS `City`,
+          drivers.province AS `Province`,
+          drivers.status AS `Status`,
+          drivers.payment_type AS `Pay Type`
+      FROM drivers
+      WHERE drivers.org_id = :org_id AND drivers.owner_operator = 1
+    params: {}
+    response_hint: "Show all owner-operator drivers"
+
+  # ========================== Customers (4) ==================================
+
+  get_customers:
+    description: "List all customers"
+    sql: |
+      SELECT
+          name_addresses.company_name AS `Customer`,
+          name_addresses.contact AS `Contact`,
+          name_addresses.phone AS `Phone`,
+          name_addresses.email AS `Email`,
+          name_addresses.city AS `City`,
+          name_addresses.province AS `Province`,
+          name_addresses.status AS `Status`
+      FROM name_addresses
+      WHERE name_addresses.org_id = :org_id
+      ORDER BY name_addresses.company_name ASC
+    params: {}
+    response_hint: "Show a table of all customers"
+
+  get_customer_details:
+    description: "Get detailed info for a specific customer"
+    sql: |
+      SELECT
+          name_addresses.company_name AS `Customer`,
+          name_addresses.contact AS `Contact`,
+          name_addresses.phone AS `Phone`,
+          name_addresses.ext_num AS `Ext`,
+          name_addresses.fax AS `Fax`,
+          name_addresses.email AS `Email`,
+          name_addresses.status AS `Status`,
+          name_addresses.user_status AS `User Status`,
+          name_addresses.notes AS `Notes`,
+          name_addresses.accounting_code AS `Accounting Code`,
+          name_addresses.customer_id AS `External Customer ID`,
+          name_addresses.currency_type AS `Currency`,
+          name_addresses.credit_limit AS `Credit Limit`,
+          name_addresses.warn_within AS `Warn Within`,
+          name_addresses.address_1 AS `Address`,
+          name_addresses.address_2 AS `Address 2`,
+          name_addresses.city AS `City`,
+          name_addresses.province AS `Province`,
+          name_addresses.country AS `Country`,
+          name_addresses.postal_code AS `Postal Code`,
+          name_addresses.billing_address_1 AS `Billing Address`,
+          name_addresses.billing_address_2 AS `Billing Address 2`,
+          name_addresses.billing_city AS `Billing City`,
+          name_addresses.billing_province AS `Billing Province`,
+          name_addresses.billing_country AS `Billing Country`,
+          name_addresses.billing_postal_code AS `Billing Postal Code`,
+          sp.name AS `Sales Person`,
+          name_addresses.sales_person_commission_percentage AS `Commission %`
+      FROM name_addresses
+      LEFT JOIN users AS sp ON name_addresses.sales_person = sp.id
+      WHERE name_addresses.org_id = :org_id AND name_addresses.company_name LIKE :customer_name
+      ORDER BY name_addresses.company_name ASC
+    params:
+      customer_name:
+        type: string
+        required: true
+        description: "Customer / company name"
+    response_hint: "Show detailed information for this customer"
+
+  get_customer_loads:
+    description: "Get all loads for a specific customer"
+    sql: "SELECT ${load_base_cols} ${load_base_joins} WHERE loads.org_id = :org_id AND invoiceTo.company_name LIKE :customer_name ${load_group_by}"
+    params:
+      customer_name:
+        type: string
+        required: true
+        description: "Customer / company name"
+    response_hint: "Show all loads for this customer"
+
+  get_customer_credit:
+    description: "Get credit limit info for a specific customer"
+    sql: |
+      SELECT
+          name_addresses.company_name AS `Customer`,
+          name_addresses.credit_limit AS `Credit Limit`,
+          name_addresses.warn_within AS `Warn Within`,
+          name_addresses.currency_type AS `Currency`
+      FROM name_addresses
+      WHERE name_addresses.org_id = :org_id AND name_addresses.company_name LIKE :customer_name
+      ORDER BY name_addresses.company_name ASC
+    params:
+      customer_name:
+        type: string
+        required: true
+        description: "Customer / company name"
+    response_hint: "Show credit limit information for this customer"
+
+  get_customer_billing_address:
+    description: "Get billing address for a specific customer"
+    sql: |
+      SELECT
+          name_addresses.company_name AS `Customer`,
+          name_addresses.billing_address_1 AS `Billing Address`,
+          name_addresses.billing_address_2 AS `Billing Address 2`,
+          name_addresses.billing_city AS `Billing City`,
+          name_addresses.billing_province AS `Billing Province`,
+          name_addresses.billing_country AS `Billing Country`,
+          name_addresses.billing_postal_code AS `Billing Postal Code`
+      FROM name_addresses
+      WHERE name_addresses.org_id = :org_id AND name_addresses.company_name LIKE :customer_name
+      ORDER BY name_addresses.company_name ASC
+    params:
+      customer_name:
+        type: string
+        required: true
+        description: "Customer / company name"
+    response_hint: "Show billing address for this customer"
+
+  get_customer_physical_address:
+    description: "Get physical address for a specific customer"
+    sql: |
+      SELECT
+          name_addresses.company_name AS `Customer`,
+          name_addresses.address_1 AS `Address`,
+          name_addresses.address_2 AS `Address 2`,
+          name_addresses.city AS `City`,
+          name_addresses.province AS `Province`,
+          name_addresses.country AS `Country`,
+          name_addresses.postal_code AS `Postal Code`
+      FROM name_addresses
+      WHERE name_addresses.org_id = :org_id AND name_addresses.company_name LIKE :customer_name
+      ORDER BY name_addresses.company_name ASC
+    params:
+      customer_name:
+        type: string
+        required: true
+        description: "Customer / company name"
+    response_hint: "Show physical address for this customer"
+
+  get_customer_contact_lines:
+    description: "Get contact lines for a specific customer (multiple contacts per customer)"
+    sql: |
+      SELECT
+          na.company_name AS `Customer`,
+          cl.contact_name AS `Contact Name`,
+          cl.contact_phone AS `Contact Phone`,
+          cl.contact_phone_ext AS `Phone Ext`,
+          cl.contact_email AS `Contact Email`,
+          cl.auto_email_invoice AS `Auto Email Invoice`,
+          cl.geofence_alert AS `Geofence Alert`
+      FROM name_addresses na
+      JOIN name_addresses_contact_lines cl ON cl.name_addresses_id = na.id
+      WHERE na.org_id = :org_id AND na.company_name LIKE :customer_name
+      ORDER BY na.company_name ASC, cl.contact_name ASC
+    params:
+      customer_name:
+        type: string
+        required: true
+        description: "Customer / company name"
+    response_hint: "Show contact lines for this customer"
+
+  get_customer_portal_settings:
+    description: "Get customer portal settings for a specific customer"
+    sql: |
+      SELECT
+          name_addresses.company_name AS `Customer`,
+          name_addresses.cp_allow_enter_loads AS `Allow customer to enter loads`,
+          name_addresses.cp_enable_categories_load AS `Enable categories in new load screen`,
+          name_addresses.cp_separate_users AS `Allow customer to have separate users`,
+          name_addresses.cp_download_conf_document AS `Allow customer to download customer confirmation document`,
+          name_addresses.cp_download_load_files AS `Allow customer to download load files`
+      FROM name_addresses
+      WHERE name_addresses.org_id = :org_id AND name_addresses.company_name LIKE :customer_name
+      ORDER BY name_addresses.company_name ASC
+    params:
+      customer_name:
+        type: string
+        required: true
+        description: "Customer / company name"
+    response_hint: "Show customer portal settings for this customer"
+
+  # ========================== Equipment (3) ==================================
+
+  get_equipment:
+    description: "List all equipment / trucks / trailers"
+    sql: |
+      SELECT
+          equipment.name AS `Equipment`,
+          equipment.licence_plate AS `Plate`,
+          equipment.vin AS `VIN`,
+          equipment.model AS `Model`,
+          equipment.fuel_type AS `Fuel Type`,
+          equipment.status AS `Status`
+      FROM equipment
+      WHERE equipment.org_id = :org_id
+    params: {}
+    response_hint: "Show a table of all equipment"
+
+  get_equipment_details:
+    description: "Get details for a specific truck/equipment"
+    sql: |
+      SELECT
+          equipment.name AS `Equipment`,
+          equipment.licence_plate AS `Plate`,
+          equipment.vin AS `VIN`,
+          equipment.model AS `Model`,
+          equipment.fuel_type AS `Fuel Type`,
+          equipment.status AS `Status`
+      FROM equipment
+      WHERE equipment.org_id = :org_id
+        AND (equipment.name LIKE :equipment_name OR equipment.licence_plate LIKE :equipment_name)
+    params:
+      equipment_name:
+        type: string
+        required: true
+        description: "Equipment name or licence plate"
+    response_hint: "Show details for this equipment"
+
+  get_equipment_loads:
+    description: "Get loads using a specific truck/equipment"
+    sql: "SELECT ${load_base_cols} ${load_base_joins} WHERE loads.org_id = :org_id AND (truck.name LIKE :equipment_name OR truck.licence_plate LIKE :equipment_name) ${load_group_by}"
+    params:
+      equipment_name:
+        type: string
+        required: true
+        description: "Equipment name or licence plate"
+    response_hint: "Show loads using this equipment"
+
+  # ========================== Settlements (5) ================================
+
+  get_settlement_for_load:
+    description: "Get settlement/payment details for a specific load"
+    sql: |
+      SELECT
+          loads.show_id AS `Load #`,
+          drivers.reference_name AS `Driver`,
+          load_driver_settlements.total_amount AS `Total Amount`,
+          load_driver_settlements.pay_amount AS `Driver Pay`,
+          load_driver_settlements.fsc_amount AS `FSC`,
+          load_driver_settlements.confirmed_at AS `Confirmed At`,
+          truck.name AS `Truck`
+      ${load_base_joins}
+      WHERE loads.org_id = :org_id AND loads.show_id = :load_id
+      ${load_group_by}
+    params:
+      load_id:
+        type: integer
+        required: true
+        description: "Load number (show_id)"
+    response_hint: "Show settlement details for this load"
+
+  get_driver_earnings:
+    description: "Get total earnings for a specific driver"
+    sql: |
+      SELECT
+          drivers.reference_name AS `Driver`,
+          COUNT(DISTINCT loads.id) AS `Total Loads`,
+          SUM(load_driver_settlements.total_amount) AS `Total Earnings`,
+          SUM(load_driver_settlements.pay_amount) AS `Total Pay`,
+          SUM(load_driver_settlements.fsc_amount) AS `Total FSC`
+      ${load_base_joins}
+      WHERE loads.org_id = :org_id AND drivers.reference_name LIKE :driver_name
+      GROUP BY drivers.id
+      ORDER BY `Total Earnings` DESC
+    params:
+      driver_name:
+        type: string
+        required: true
+        description: "Driver name"
+    response_hint: "Show total earnings for this driver"
+
+  get_shift_times:
+    description: "Get shift/hours for a specific load"
+    sql: |
+      SELECT
+          loads.show_id AS `Load #`,
+          drivers.reference_name AS `Driver`,
+          load_driver_settlements.shift_started_at AS `Shift Start`,
+          load_driver_settlements.shift_end_at AS `Shift End`,
+          TIMESTAMPDIFF(MINUTE, load_driver_settlements.shift_started_at, load_driver_settlements.shift_end_at) AS `Minutes`
+      ${load_base_joins}
+      WHERE loads.org_id = :org_id AND loads.show_id = :load_id
+    params:
+      load_id:
+        type: integer
+        required: true
+        description: "Load number (show_id)"
+    response_hint: "Show shift times for this load"
+
+  get_confirmed_settlements:
+    description: "Get confirmed/paid settlements"
+    sql: |
+      SELECT
+          loads.show_id AS `Load #`,
+          drivers.reference_name AS `Driver`,
+          load_driver_settlements.total_amount AS `Total Amount`,
+          load_driver_settlements.pay_amount AS `Driver Pay`,
+          load_driver_settlements.confirmed_at AS `Confirmed At`
+      ${load_base_joins}
+      WHERE loads.org_id = :org_id AND load_driver_settlements.confirmed_at IS NOT NULL
+      ${load_group_by}
+    params: {}
+    response_hint: "Show confirmed settlements"
+
+  get_settlements_by_date:
+    description: "Get settlements within a date range"
+    sql: |
+      SELECT
+          loads.show_id AS `Load #`,
+          drivers.reference_name AS `Driver`,
+          load_driver_settlements.total_amount AS `Total Amount`,
+          load_driver_settlements.pay_amount AS `Driver Pay`,
+          load_driver_settlements.confirmed_at AS `Confirmed At`,
+          settlements.date AS `Settlement Date`
+      ${load_base_joins}
+      LEFT JOIN settlements ON load_driver_settlements.settlement_id = settlements.id
+      WHERE loads.org_id = :org_id
+        AND settlements.date >= :start_date
+        AND settlements.date <= :end_date
+      ${load_group_by}
+    params:
+      start_date:
+        type: date
+        required: true
+        description: "Start date (YYYY-MM-DD)"
+      end_date:
+        type: date
+        required: true
+        description: "End date (YYYY-MM-DD)"
+    response_hint: "Show settlements within the date range"
+
+  # ========================== Analytics (5) ==================================
+
+  count_loads_by_status:
+    description: "Count of loads grouped by status"
+    sql: |
+      SELECT
+          load_statuses.status_name AS `Status`,
+          COUNT(*) AS `Count`
+      FROM loads
+      JOIN load_statuses ON loads.status_id = load_statuses.id
+      WHERE loads.org_id = :org_id
+      GROUP BY load_statuses.status_name
+      ORDER BY Count DESC
+    params: {}
+    response_hint: "Show a summary of load counts by status"
+
+  driver_leaderboard:
+    description: "Top drivers by number of loads"
+    sql: |
+      SELECT
+          drivers.reference_name AS `Driver`,
+          COUNT(DISTINCT loads.id) AS `Load Count`,
+          SUM(load_driver_settlements.total_amount) AS `Total Earnings`
+      ${load_base_joins}
+      WHERE loads.org_id = :org_id AND drivers.reference_name IS NOT NULL
+      GROUP BY drivers.id
+      ORDER BY `Load Count` DESC
+      LIMIT :limit
+    params:
+      limit:
+        type: integer
+        required: false
+        default: 10
+        description: "Number of results"
+    response_hint: "Show top drivers ranked by load count"
+
+  top_customers:
+    description: "Top customers by revenue"
+    sql: |
+      SELECT
+          invoiceTo.company_name AS `Customer`,
+          COUNT(DISTINCT loads.id) AS `Load Count`,
+          SUM(loads.rate) AS `Total Revenue`
+      FROM loads
+      LEFT JOIN name_addresses AS invoiceTo ON loads.invoice_to_id = invoiceTo.id
+      WHERE loads.org_id = :org_id AND invoiceTo.company_name IS NOT NULL
+      GROUP BY invoiceTo.id
+      ORDER BY `Total Revenue` DESC
+      LIMIT :limit
+    params:
+      limit:
+        type: integer
+        required: false
+        default: 10
+        description: "Number of results"
+    response_hint: "Show top customers ranked by revenue"
+
+  equipment_utilization:
+    description: "Most used trucks by load count"
+    sql: |
+      SELECT
+          truck.name AS `Truck`,
+          truck.licence_plate AS `Plate`,
+          COUNT(DISTINCT loads.id) AS `Load Count`
+      ${load_base_joins}
+      WHERE loads.org_id = :org_id AND truck.name IS NOT NULL
+      GROUP BY truck.id
+      ORDER BY `Load Count` DESC
+      LIMIT :limit
+    params:
+      limit:
+        type: integer
+        required: false
+        default: 10
+        description: "Number of results"
+    response_hint: "Show most used trucks ranked by load count"
+
+  load_averages:
+    description: "Average rate, distance per load"
+    sql: |
+      SELECT
+          COUNT(*) AS `Total Loads`,
+          ROUND(AVG(loads.rate), 2) AS `Avg Rate`,
+          ROUND(AVG(loads.distance), 2) AS `Avg Distance`,
+          ROUND(SUM(loads.rate), 2) AS `Total Revenue`
+      FROM loads
+      WHERE loads.org_id = :org_id
+    params: {}
+    response_hint: "Show load averages and totals"
+
+  # ========================== Misc (8) =======================================
+
+  get_usps_loads:
+    description: "Get USPS loads"
+    sql: "SELECT ${load_base_cols} ${load_base_joins} WHERE loads.org_id = :org_id AND loads.module = 'usps' ${load_group_by}"
+    params: {}
+    response_hint: "Show USPS loads"
+
+  get_usps_recurring:
+    description: "Get recurring USPS loads"
+    sql: "SELECT ${load_base_cols} ${load_base_joins} WHERE loads.org_id = :org_id AND loads.module = 'usps' AND loads.is_usps_recurring_load = 1 ${load_group_by}"
+    params: {}
+    response_hint: "Show recurring USPS loads"
+
+  get_terminal_loads:
+    description: "Get loads at a specific terminal"
+    sql: |
+      SELECT ${load_base_cols},
+          GROUP_CONCAT(DISTINCT terminal.name) AS `Terminal`
+      ${load_base_joins}
+      LEFT JOIN loads_terminal ON loads_terminal.load_id = loads.id
+      LEFT JOIN terminal ON terminal.id = loads_terminal.terminal_id
+      WHERE loads.org_id = :org_id AND terminal.name LIKE :terminal_name
+      ${load_group_by}
+    params:
+      terminal_name:
+        type: string
+        required: true
+        description: "Terminal name"
+    response_hint: "Show loads at the specified terminal"
+
+  get_loads_by_creator:
+    description: "Get loads created by a specific user"
+    sql: |
+      SELECT ${load_base_cols},
+          creator.name AS `Creator`
+      ${load_base_joins}
+      JOIN users AS creator ON loads.createdby_id = creator.id
+      WHERE loads.org_id = :org_id AND creator.name LIKE :creator_name
+      ${load_group_by}
+    params:
+      creator_name:
+        type: string
+        required: true
+        description: "Creator name"
+    response_hint: "Show loads created by this user"
+
+  get_loads_by_dispatcher:
+    description: "Get loads dispatched by a specific user"
+    sql: |
+      SELECT ${load_base_cols},
+          dispatcher.name AS `Dispatcher`
+      ${load_base_joins}
+      LEFT JOIN users AS dispatcher ON loads.dispatcher_id = dispatcher.id
+      WHERE loads.org_id = :org_id AND dispatcher.name LIKE :dispatcher_name
+      ${load_group_by}
+    params:
+      dispatcher_name:
+        type: string
+        required: true
+        description: "Dispatcher name"
+    response_hint: "Show loads dispatched by this user"
+
+  get_loads_by_tax:
+    description: "Get loads with a specific tax code"
+    sql: |
+      SELECT ${load_base_cols},
+          taxes.code AS `Tax Code`
+      ${load_base_joins}
+      LEFT JOIN taxes ON loads.tax_code_id = taxes.id
+      WHERE loads.org_id = :org_id AND taxes.code LIKE :tax_code
+      ${load_group_by}
+    params:
+      tax_code:
+        type: string
+        required: true
+        description: "Tax code"
+    response_hint: "Show loads with this tax code"
+
+  get_loads_by_category:
+    description: "Get loads in a specific category"
+    sql: |
+      SELECT ${load_base_cols},
+          loads_categories.name AS `Category`
+      ${load_base_joins}
+      LEFT JOIN loads_categories ON loads.category_id = loads_categories.id
+      WHERE loads.org_id = :org_id AND loads_categories.name LIKE :category_name
+      ${load_group_by}
+    params:
+      category_name:
+        type: string
+        required: true
+        description: "Category name"
+    response_hint: "Show loads in this category"
+
+  get_loads_by_commodity:
+    description: "Get loads carrying a specific commodity"
+    sql: |
+      SELECT ${load_base_cols},
+          GROUP_CONCAT(DISTINCT load_destinations.commodity_name) AS `Commodity`
+      ${load_base_joins}
+      JOIN load_destinations ON load_destinations.load_id = loads.id
+      WHERE loads.org_id = :org_id AND load_destinations.commodity_name LIKE :commodity_name
+      ${load_group_by}
+    params:
+      commodity_name:
+        type: string
+        required: true
+        description: "Commodity name"
+    response_hint: "Show loads carrying this commodity"

@@ -5,7 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ title }}</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <!-- Markdown rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- SQL syntax highlighting -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-sql.min.js"></script>
 </head>
 <body>
     <div class="app-container">
@@ -15,11 +20,24 @@
                     <h1>{{ icon | safe }} {{ title }}</h1>
                     <p>{{ description }}</p>
                 </div>
-                <button id="clear-btn" title="Clear chat">&#x1F5D1; Clear</button>
+                <div class="header-actions">
+                    <button id="theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode">
+                        <span class="theme-icon-light">&#x1F319;</span>
+                        <span class="theme-icon-dark">&#x2600;&#xFE0F;</span>
+                    </button>
+                    <button id="search-toggle" title="Search messages" aria-label="Search messages">&#x1F50D;</button>
+                    <button id="clear-btn" title="Clear chat" aria-label="Clear chat">&#x1F5D1; Clear</button>
+                </div>
+            </div>
+            <!-- Search bar (hidden by default) -->
+            <div id="search-bar" class="search-bar hidden">
+                <input type="text" id="search-input" placeholder="Search messages..." aria-label="Search messages" />
+                <span id="search-count"></span>
+                <button id="search-close" aria-label="Close search">&times;</button>
             </div>
         </header>
 
-        <main id="chat-container" class="chat-container"></main>
+        <main id="chat-container" class="chat-container" role="log" aria-live="polite" aria-label="Chat messages"></main>
 
         <footer class="input-bar">
             <form id="chat-form">
@@ -28,12 +46,20 @@
                     id="message-input"
                     placeholder="{{ placeholder }}"
                     autocomplete="off"
+                    maxlength="2000"
+                    aria-label="Type your message"
                 />
-                <button type="submit" id="send-btn">Send</button>
+                <button type="submit" id="send-btn" aria-label="Send message">Send</button>
+                <button type="button" id="stop-btn" class="hidden" aria-label="Stop generating">Stop</button>
             </form>
+            <div id="token-info" class="token-info"></div>
         </footer>
     </div>
 
+    <!-- Suggested prompts data -->
+    <script>
+        window.__SUGGESTED_PROMPTS__ = {{ suggested_prompts | safe }};
+    </script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>

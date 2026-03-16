@@ -1,7 +1,15 @@
 import os
 import re
+import time
+import logging
 import warnings
+import hashlib
+import threading
+import uuid as _uuid
+
 import yaml
+import sqlparse
+from sqlalchemy import text as sa_text
 from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
 from langchain.agents import create_agent
@@ -9,20 +17,58 @@ from langchain.tools import tool
 from langchain_community.utilities import SQLDatabase
 from langchain_community.agent_toolkits import SQLDatabaseToolkit
 from langgraph.checkpoint.memory import MemorySaver
-from typing import Dict, Any
+from typing import Dict, Any, List, Tuple, Optional, Union
 
-# Load environment variables
 load_dotenv()
 
+logger = logging.getLogger("tms_chatbot.agent")
 
+
+# ---------------------------------------------------------------------------
+# Simple TTL cache for query results
+# ---------------------------------------------------------------------------
+class QueryCache:
+    def __init__(self, ttl: int = 300):
+        self.ttl = ttl
+        self._store: Dict[str, Any] = {}
+        self._timestamps: Dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def get(self, key: str):
+        with self._lock:
+            if key in self._store:
+                if time.time() - self._timestamps[key] < self.ttl:
+                    return self._store[key]
+                del self._store[key]
+                del self._timestamps[key]
+        return None
+
+    def set(self, key: str, value: Any):
+        with self._lock:
+            self._store[key] = value
+            self._timestamps[key] = time.time()
+
+    def clear(self):
+        with self._lock:
+            self._store.clear()
+            self._timestamps.clear()
+
+
+# ---------------------------------------------------------------------------
+# Database Agent
+# ---------------------------------------------------------------------------
 class DatabaseAgent:
+    QUERY_TIMEOUT = 30  # seconds
+    PAGE_SIZE = 10
+
     def __init__(self, config_path: str = None):
-        """Initialize the database agent with config-driven settings"""
-
-        # Load domain configuration
         self.config = self._load_config(config_path)
+        self.query_cache = QueryCache(ttl=300)
 
-        # Initialize Claude model from config
+        # Pagination: stores original (unlimited) queries keyed by query_id
+        self.paginated_queries: Dict[str, Dict] = {}
+        self._last_pagination: Optional[Dict] = None
+
         llm_config = self.config.get("llm", {})
         self.llm = ChatAnthropic(
             model=llm_config.get("model", "claude-sonnet-4-20250514"),
@@ -31,25 +77,17 @@ class DatabaseAgent:
             max_tokens=llm_config.get("max_tokens", 4096),
         )
 
-        # Setup database connection using SQLDatabase
         self.setup_database()
-
-        # Setup memory for conversation history
         self.checkpointer = MemorySaver()
-
-        # Create SQL toolkit and tools
         self.setup_tools()
-
-        # Create agent
         self.agent = self._create_agent()
 
     def _load_config(self, config_path: str = None) -> dict:
-        """Load domain configuration from YAML file"""
         path = config_path or os.getenv("AGENT_CONFIG", "config.yaml")
         try:
             with open(path, "r") as f:
                 config = yaml.safe_load(f)
-            print(f"Loaded config from: {path}")
+            logger.info("Loaded config from: %s", path)
             return config
         except FileNotFoundError:
             raise FileNotFoundError(
@@ -58,8 +96,6 @@ class DatabaseAgent:
             )
 
     def setup_database(self):
-        """Setup SQLDatabase connection based on environment variables"""
-        # Suppress SQLAlchemy warning about circular FK between drivers <-> equipment
         warnings.filterwarnings("ignore", message=".*Cannot correctly sort tables.*")
 
         try:
@@ -85,31 +121,129 @@ class DatabaseAgent:
             else:
                 raise ValueError(f"Unsupported DB_TYPE: {db_type}")
 
-            # Apply table whitelist from config (if specified)
             include_tables = self.config.get("database", {}).get("include_tables")
             if include_tables:
                 self.db = SQLDatabase.from_uri(db_uri, include_tables=include_tables)
             else:
                 self.db = SQLDatabase.from_uri(db_uri)
 
-            # Get database info — only table names (lazy schema loading)
             self.dialect = self.db.dialect
             self.table_names = self.db.get_usable_table_names()
 
-            print(f"Connected to {db_type} database")
-            print(f"Available tables: {', '.join(self.table_names)}")
+            logger.info("Connected to %s database", db_type)
+            logger.info("Available tables: %s", ", ".join(self.table_names))
 
         except Exception as e:
-            print(f"Database connection error: {e}")
+            logger.error("Database connection error: %s", e)
             raise
 
+    # -------------------------------------------------------------------
+    # SQL validation & execution helpers
+    # -------------------------------------------------------------------
+    def _validate_sql(self, query: str) -> str:
+        """Validate SQL query safety using sqlparse. Returns error string or empty if valid."""
+        query_stripped = query.strip()
+
+        # Block compound statements (multiple queries separated by ;)
+        if ";" in query_stripped.rstrip(";"):
+            return "UNSAFE: Multiple statements detected. Only single queries are allowed."
+
+        # Parse with sqlparse
+        parsed = sqlparse.parse(query_stripped)
+        if not parsed:
+            return "UNSAFE: Could not parse SQL query."
+
+        stmt = parsed[0]
+        stmt_type = stmt.get_type()
+
+        if stmt_type and stmt_type != "SELECT" and stmt_type != "UNKNOWN":
+            return f"UNSAFE: Only SELECT queries are allowed. Detected: {stmt_type}"
+
+        # Check first meaningful token
+        first_token = None
+        for token in stmt.tokens:
+            if not token.is_whitespace:
+                first_token = token
+                break
+
+        if first_token and first_token.ttype is sqlparse.tokens.DML:
+            if first_token.normalized != "SELECT":
+                return f"UNSAFE: Query starts with {first_token.normalized}. Only SELECT is allowed."
+
+        # Block dangerous keywords anywhere (including subqueries)
+        dangerous = {
+            "DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE",
+            "TRUNCATE", "EXEC", "EXECUTE", "GRANT", "REVOKE",
+        }
+        tokens_upper = query_stripped.upper()
+        for kw in dangerous:
+            if re.search(r"\b" + kw + r"\b", tokens_upper):
+                return f"UNSAFE: Query contains {kw} operation."
+
+        return ""
+
+    def _execute_with_timeout(self, query: str) -> str:
+        """Execute a SQL query with a timeout."""
+        result = [None]
+        error = [None]
+
+        def run():
+            try:
+                result[0] = self.db.run(query)
+            except Exception as e:
+                error[0] = e
+
+        thread = threading.Thread(target=run)
+        thread.start()
+        thread.join(timeout=self.QUERY_TIMEOUT)
+
+        if thread.is_alive():
+            return f"Error: Query timed out after {self.QUERY_TIMEOUT} seconds. Please try a simpler query."
+
+        if error[0]:
+            return f"Error executing query: {str(error[0])}"
+
+        return result[0]
+
+    def _execute_structured(self, query: str) -> Union[Tuple[List[str], List[list]], str]:
+        """Execute a query and return (columns, rows) or an error string."""
+        result = [None]
+        error = [None]
+
+        def run():
+            try:
+                with self.db._engine.connect() as conn:
+                    cursor = conn.execute(sa_text(query))
+                    columns = list(cursor.keys())
+                    rows = [list(r) for r in cursor.fetchall()]
+                result[0] = (columns, rows)
+            except Exception as e:
+                error[0] = e
+
+        thread = threading.Thread(target=run)
+        thread.start()
+        thread.join(timeout=self.QUERY_TIMEOUT)
+
+        if thread.is_alive():
+            return f"Error: Query timed out after {self.QUERY_TIMEOUT} seconds."
+        if error[0]:
+            return f"Error executing query: {str(error[0])}"
+        return result[0]
+
+    @staticmethod
+    def _has_limit(query: str) -> bool:
+        """Check whether a SQL query already contains a LIMIT clause."""
+        # Look for LIMIT that is NOT inside a subquery
+        upper = query.strip().upper()
+        # Simple heuristic: check after the last closing paren (skip subqueries)
+        after_subqueries = upper.rsplit(")", 1)[-1] if ")" in upper else upper
+        return bool(re.search(r"\bLIMIT\s+\d+", after_subqueries))
+
+    # -------------------------------------------------------------------
+    # Tools
+    # -------------------------------------------------------------------
     def setup_tools(self):
-        """Create SQLDatabase toolkit and custom tools"""
-
-        # Create SQLDatabase toolkit
         self.sql_toolkit = SQLDatabaseToolkit(db=self.db, llm=self.llm)
-
-        # Get base tools from toolkit
         base_tools = self.sql_toolkit.get_tools()
 
         @tool
@@ -147,8 +281,7 @@ class DatabaseAgent:
                 ]
                 if similar_tables:
                     return f"Table '{table_name}' not found. Did you mean: {', '.join(similar_tables)}"
-                else:
-                    return f"Table '{table_name}' not found. Available tables: {', '.join(self.table_names)}"
+                return f"Table '{table_name}' not found. Available tables: {', '.join(self.table_names)}"
 
             return self.db.get_table_info([table_name])
 
@@ -160,14 +293,69 @@ class DatabaseAgent:
             WARNING: This tool should only be used for SELECT queries.
             Always validate the query is safe before executing.
             """
-            if not query.strip().upper().startswith("SELECT"):
-                return "Only SELECT queries are allowed for safety. Please rephrase your request to use a SELECT query."
+            validation_error = self._validate_sql(query)
+            if validation_error:
+                return validation_error
 
-            try:
-                result = self.db.run(query)
-                return result
-            except Exception as e:
-                return f"Error executing query: {str(e)}"
+            # Check cache
+            cache_key = hashlib.md5(query.strip().encode()).hexdigest()
+            cached = self.query_cache.get(cache_key)
+            if cached is not None:
+                logger.info("Cache hit for query: %s", query[:80])
+                return cached
+
+            logger.info("Executing query: %s", query[:200])
+            start = time.time()
+
+            # --- Pagination: auto-limit queries without LIMIT --------
+            if not self._has_limit(query):
+                probe_query = query.rstrip().rstrip(";") + f" LIMIT {self.PAGE_SIZE + 1}"
+                structured = self._execute_structured(probe_query)
+
+                if isinstance(structured, str):
+                    # Error — fall through to normal execution
+                    logger.warning("Structured probe failed, falling back: %s", structured[:120])
+                else:
+                    columns, rows = structured
+                    duration = time.time() - start
+                    logger.info("Query executed in %.2fs (%d rows)", duration, len(rows))
+
+                    has_more = len(rows) > self.PAGE_SIZE
+                    display_rows = rows[: self.PAGE_SIZE]
+
+                    # Format like db.run() so the LLM sees a familiar string
+                    result_str = str([tuple(r) for r in display_rows])
+
+                    if has_more:
+                        qid = str(_uuid.uuid4())
+                        self.paginated_queries[qid] = {
+                            "sql": query,
+                            "columns": columns,
+                        }
+                        self._last_pagination = {
+                            "query_id": qid,
+                            "has_more": True,
+                            "page": 1,
+                            "page_size": self.PAGE_SIZE,
+                            "columns": columns,
+                        }
+                        result_str += f"\n(Showing first {self.PAGE_SIZE} rows — more available)"
+                    else:
+                        self._last_pagination = None
+
+                    self.query_cache.set(cache_key, result_str)
+                    return result_str
+
+            # --- Normal execution (query already has LIMIT, or probe failed)
+            result = self._execute_with_timeout(query)
+            duration = time.time() - start
+            logger.info("Query executed in %.2fs", duration)
+            self._last_pagination = None
+
+            if not str(result).startswith("Error"):
+                self.query_cache.set(cache_key, result)
+
+            return result
 
         @tool
         def check_query_safety(query: str) -> str:
@@ -175,49 +363,30 @@ class DatabaseAgent:
             Check if a SQL query is safe to execute.
             Returns a safety assessment.
             """
-            query_upper = query.strip().upper()
-
-            dangerous_keywords = [
-                "DROP",
-                "DELETE",
-                "UPDATE",
-                "INSERT",
-                "ALTER",
-                "CREATE",
-                "TRUNCATE",
-            ]
-
-            for keyword in dangerous_keywords:
-                if keyword in query_upper:
-                    return f"UNSAFE: Query contains {keyword} operation. Only SELECT queries are allowed."
-
-            if not query_upper.startswith("SELECT"):
-                return "UNSAFE: Query does not start with SELECT. Only SELECT queries are allowed."
-
+            validation_error = self._validate_sql(query)
+            if validation_error:
+                return validation_error
             return "SAFE: Query appears to be a read-only SELECT statement."
 
-        # Combine toolkit tools with custom tools
-        tool_names = [tool.name for tool in base_tools]
-
+        tool_names = [t.name for t in base_tools]
         custom_tools = [
             get_database_info,
             get_table_schema,
             execute_sql_query,
             check_query_safety,
         ]
-
         self.tools = base_tools + [t for t in custom_tools if t.name not in tool_names]
 
+    # -------------------------------------------------------------------
+    # Agent creation
+    # -------------------------------------------------------------------
     def _create_agent(self):
-        """Create the LangChain agent using the config-driven system prompt"""
-
         domain_name = self.config.get("domain", {}).get("name", "AI Agent")
         restriction_msg = self.config.get(
             "domain_restriction_message",
             f"I can only help with questions about your {domain_name} data.",
         )
 
-        # Build filter instructions from query_variables
         query_vars = self.config.get("query_variables", {})
         if query_vars:
             filter_lines = [f"- {key} = {value}" for key, value in query_vars.items()]
@@ -229,7 +398,6 @@ class DatabaseAgent:
         else:
             filter_instructions = ""
 
-        # Build view/column instructions from config views
         views = self.config.get("views", {})
         if views:
             view_lines = []
@@ -239,10 +407,10 @@ class DatabaseAgent:
                 cols = view_config.get("grid_columns", [])
                 dest_cols = view_config.get("destination_columns", [])
                 col_list = ", ".join(
-                    [f"{c['label']} ({c['field']})" + (f" — {c['note']}" if c.get('note') else "") for c in cols]
+                    [f"{c['label']} ({c['field']})" + (f" -- {c['note']}" if c.get('note') else "") for c in cols]
                 )
                 dest_col_list = ", ".join(
-                    [f"{c['label']} ({c['field']})" + (f" — {c['note']}" if c.get('note') else "") for c in dest_cols]
+                    [f"{c['label']} ({c['field']})" + (f" -- {c['note']}" if c.get('note') else "") for c in dest_cols]
                 )
                 view_lines.append(f"View: {desc} ({endpoint})")
                 view_lines.append(f"  Load columns: {col_list}")
@@ -252,7 +420,6 @@ class DatabaseAgent:
         else:
             view_columns_instructions = ""
 
-        # Build table join instructions from config
         table_joins = self.config.get("table_joins", [])
         if table_joins:
             join_lines = [f"- {j['join']}  -- {j['purpose']}" for j in table_joins]
@@ -279,20 +446,17 @@ class DatabaseAgent:
 
         return agent
 
+    # -------------------------------------------------------------------
+    # Query execution
+    # -------------------------------------------------------------------
     def query(self, user_input: str, thread_id: str = "default") -> Dict[str, Any]:
-        """Process a user query and return the response, with automatic retry on SQL errors"""
         max_retries = 2
 
         try:
             enhanced_input = user_input
 
             structure_keywords = [
-                "table",
-                "schema",
-                "structure",
-                "column",
-                "field",
-                "database",
+                "table", "schema", "structure", "column", "field", "database",
             ]
             if any(keyword in user_input.lower() for keyword in structure_keywords):
                 enhanced_input = (
@@ -306,9 +470,9 @@ class DatabaseAgent:
                 config=config,
             )
 
-            output = response["messages"][-1].content
+            output = self._extract_text(response["messages"][-1].content)
 
-            # Retry logic: if the agent hit a SQL error, send it back for self-correction
+            # Retry on SQL errors
             for _ in range(max_retries):
                 if "Error executing query" not in output:
                     break
@@ -317,36 +481,114 @@ class DatabaseAgent:
                     {"messages": [{"role": "user", "content": retry_msg}]},
                     config=config,
                 )
-                output = response["messages"][-1].content
+                output = self._extract_text(response["messages"][-1].content)
 
             sql_queries = self.extract_sql_queries(output)
+
+            # Extract token usage if available
+            token_usage = {}
+            last_msg = response["messages"][-1]
+            if hasattr(last_msg, "usage_metadata") and last_msg.usage_metadata:
+                token_usage = {
+                    "input_tokens": last_msg.usage_metadata.get("input_tokens", 0),
+                    "output_tokens": last_msg.usage_metadata.get("output_tokens", 0),
+                }
+
+            # Grab pagination state set by the tool, then reset
+            pagination = self._last_pagination
+            self._last_pagination = None
 
             return {
                 "success": True,
                 "response": output,
                 "sql_queries": sql_queries,
+                "token_usage": token_usage,
+                "pagination": pagination,
             }
         except Exception as e:
+            logger.error("Agent query error: %s", e, exc_info=True)
             return {
                 "success": False,
                 "response": f"I encountered an error: {str(e)}. Please try rephrasing your question.",
                 "error": str(e),
             }
 
+    # -------------------------------------------------------------------
+    # Pagination — fetch next page for a stored query
+    # -------------------------------------------------------------------
+    def paginate(self, query_id: str, page: int, page_size: int = 10) -> Dict:
+        stored = self.paginated_queries.get(query_id)
+        if not stored:
+            return {"error": "Query not found or expired"}
+
+        sql = stored["sql"]
+        columns = stored["columns"]
+        offset = (page - 1) * page_size
+
+        validation_error = self._validate_sql(sql)
+        if validation_error:
+            return {"error": validation_error}
+
+        paginated_sql = sql.rstrip().rstrip(";") + f" LIMIT {page_size + 1} OFFSET {offset}"
+        structured = self._execute_structured(paginated_sql)
+
+        if isinstance(structured, str):
+            return {"error": structured}
+
+        _, rows = structured
+        has_more = len(rows) > page_size
+        display_rows = rows[:page_size]
+
+        # Convert every cell to string for JSON serialisation
+        data = []
+        for row in display_rows:
+            data.append([
+                str(v) if v is not None else ""
+                for v in row
+            ])
+
+        return {
+            "columns": columns,
+            "rows": data,
+            "page": page,
+            "has_more": has_more,
+        }
+
+    @staticmethod
+    def _extract_text(content) -> str:
+        """Normalize LLM message content to a plain string.
+
+        LangChain tool-calling agents can return content as a list of
+        content blocks (e.g. [{"type": "text", "text": "..."}]) instead of
+        a simple string.  This helper always returns a string.
+        """
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for block in content:
+                if isinstance(block, dict):
+                    parts.append(block.get("text", ""))
+                elif isinstance(block, str):
+                    parts.append(block)
+                else:
+                    parts.append(str(block))
+            return "\n".join(parts)
+        return str(content)
+
     def extract_sql_queries(self, text: str) -> list:
-        """Extract SQL queries from the response text"""
-        sql_pattern = r"(SELECT\s+.*?;)"
-        matches = re.findall(sql_pattern, text, re.IGNORECASE | re.DOTALL)
+        # First try fenced code blocks
+        matches = re.findall(r"```sql\s*(.*?)```", text, re.IGNORECASE | re.DOTALL)
+        if not matches:
+            # Fallback: bare SELECT statements
+            matches = re.findall(r"(SELECT\s+.*?;)", text, re.IGNORECASE | re.DOTALL)
         return matches
 
     def reset_conversation(self):
-        """Reset the conversation memory by switching to a new thread"""
         import uuid
-
         return str(uuid.uuid4())
 
     def get_database_summary(self) -> Dict:
-        """Get a summary of the database for the UI"""
         return {
             "type": self.dialect,
             "tables": self.table_names,
@@ -355,7 +597,17 @@ class DatabaseAgent:
         }
 
 
-# Factory function — called once at module level in app.py
 def create_agent_instance(config_path: str = None):
-    """Create a new DatabaseAgent instance"""
-    return DatabaseAgent(config_path)
+    from tracx_engine.templates import configure as configure_templates
+    configure_templates(config_path)
+
+    db_agent = DatabaseAgent(config_path)
+
+    # Wrap with QueryEngine for template-based fast path
+    org_id = db_agent.config.get("query_variables", {}).get("org_id")
+    if org_id is not None:
+        from tracx_engine.engine import QueryEngine
+        return QueryEngine(db_agent, org_id=int(org_id))
+
+    # No org_id configured — use raw agent (no template support)
+    return db_agent

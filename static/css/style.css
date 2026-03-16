@@ -1,3 +1,67 @@
+/* ===================================================================
+   CSS Custom Properties (Light & Dark themes)
+   =================================================================== */
+:root {
+    --bg: #f5f5f5;
+    --bg-secondary: #ffffff;
+    --text: #222222;
+    --text-secondary: #666666;
+    --text-muted: #999999;
+    --border: #e0e0e0;
+    --border-light: #f0f0f0;
+    --primary: #4b6cb7;
+    --primary-dark: #3a5a9a;
+    --primary-light: rgba(75, 108, 183, 0.2);
+    --header-gradient-start: #4b6cb7;
+    --header-gradient-end: #182848;
+    --user-bubble: #4b6cb7;
+    --user-text: #ffffff;
+    --assistant-bubble: #ffffff;
+    --assistant-border: #e0e0e0;
+    --code-bg: #f4f4f4;
+    --code-border: #ddd;
+    --table-header: #4b6cb7;
+    --table-even: #f9f9f9;
+    --table-hover: #eef2fa;
+    --input-bg: #ffffff;
+    --input-border: #cccccc;
+    --error-color: #e53935;
+    --success-color: #43a047;
+    --shadow: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="dark"] {
+    --bg: #1a1a2e;
+    --bg-secondary: #16213e;
+    --text: #e0e0e0;
+    --text-secondary: #aaaaaa;
+    --text-muted: #777777;
+    --border: #2a2a4a;
+    --border-light: #222244;
+    --primary: #6c8fd4;
+    --primary-dark: #5a7dc2;
+    --primary-light: rgba(108, 143, 212, 0.2);
+    --header-gradient-start: #2a3a6a;
+    --header-gradient-end: #0f1a3a;
+    --user-bubble: #3a5a9a;
+    --user-text: #f0f0f0;
+    --assistant-bubble: #1e2a4a;
+    --assistant-border: #2a3a5a;
+    --code-bg: #0d1b2a;
+    --code-border: #2a3a5a;
+    --table-header: #2a4a7a;
+    --table-even: #162040;
+    --table-hover: #1e3060;
+    --input-bg: #16213e;
+    --input-border: #2a3a5a;
+    --error-color: #ef5350;
+    --success-color: #66bb6a;
+    --shadow: rgba(0, 0, 0, 0.3);
+}
+
+/* ===================================================================
+   Base
+   =================================================================== */
 * {
     margin: 0;
     padding: 0;
@@ -6,23 +70,27 @@
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    background: #f5f5f5;
+    background: var(--bg);
+    color: var(--text);
     height: 100vh;
     display: flex;
     justify-content: center;
+    transition: background 0.3s, color 0.3s;
 }
 
 .app-container {
     width: 100%;
-    max-width: 800px;
+    max-width: 900px;
     display: flex;
     flex-direction: column;
     height: 100vh;
 }
 
-/* Header */
+/* ===================================================================
+   Header
+   =================================================================== */
 .main-header {
-    background: linear-gradient(90deg, #4b6cb7 0%, #182848 100%);
+    background: linear-gradient(90deg, var(--header-gradient-start) 0%, var(--header-gradient-end) 100%);
     padding: 16px 24px;
     color: white;
     flex-shrink: 0;
@@ -44,22 +112,80 @@ body {
     color: #ccc;
 }
 
-#clear-btn {
+.header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.header-actions button {
     background: rgba(255, 255, 255, 0.15);
     color: white;
     border: 1px solid rgba(255, 255, 255, 0.3);
-    padding: 6px 14px;
+    padding: 6px 12px;
     border-radius: 6px;
     cursor: pointer;
     font-size: 0.85rem;
     white-space: nowrap;
+    transition: background 0.2s;
 }
 
-#clear-btn:hover {
+.header-actions button:hover {
     background: rgba(255, 255, 255, 0.25);
 }
 
-/* Chat container */
+/* Theme toggle icon visibility */
+[data-theme="light"] .theme-icon-dark,
+[data-theme="dark"] .theme-icon-light {
+    display: none;
+}
+
+/* Search bar */
+.search-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 6px 0;
+}
+
+.search-bar.hidden {
+    display: none;
+}
+
+.search-bar input {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
+    font-size: 0.85rem;
+    outline: none;
+}
+
+.search-bar input::placeholder {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+#search-count {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.8);
+    min-width: 60px;
+}
+
+#search-close {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 2px 6px;
+}
+
+/* ===================================================================
+   Chat Container
+   =================================================================== */
 .chat-container {
     flex: 1;
     overflow-y: auto;
@@ -67,25 +193,70 @@ body {
     padding: 20px 16px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 16px;
 }
 
-/* Message row — wraps bubble + timestamp */
+/* ===================================================================
+   Message Rows & Bubbles
+   =================================================================== */
 .message-row {
     display: flex;
     flex-direction: column;
-    max-width: 85%;
     min-width: 0;
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 .message-row.user {
     align-self: flex-end;
     align-items: flex-end;
+    max-width: 85%;
 }
 
 .message-row.assistant {
     align-self: flex-start;
     align-items: flex-start;
+    max-width: 96%;
+    width: 100%;
+}
+
+.message-inner {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    min-width: 0;
+    width: 100%;
+}
+
+.message-row.user .message-inner {
+    flex-direction: row-reverse;
+}
+
+/* Avatars */
+.avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.avatar.user {
+    background: var(--primary-dark);
+    color: white;
+}
+
+.avatar.assistant {
+    background: var(--primary);
+    color: white;
 }
 
 /* Chat bubbles */
@@ -97,30 +268,100 @@ body {
     word-wrap: break-word;
     overflow-wrap: break-word;
     min-width: 0;
-    overflow: hidden;
+    max-width: 100%;
 }
 
 .message.user {
-    background: #4b6cb7;
-    color: white;
+    background: var(--user-bubble);
+    color: var(--user-text);
     border-bottom-right-radius: 4px;
 }
 
 .message.assistant {
-    background: white;
-    color: #222;
-    border: 1px solid #e0e0e0;
+    background: var(--assistant-bubble);
+    color: var(--text);
+    border: 1px solid var(--assistant-border);
     border-bottom-left-radius: 4px;
+    width: 100%;
+    min-width: 0;
+    padding: 12px 16px;
 }
 
-/* Timestamp below each bubble */
+/* Timestamp */
 .message-time {
     font-size: 0.7rem;
-    color: #999;
+    color: var(--text-muted);
     margin-top: 3px;
-    padding: 0 4px;
+    margin-right: 40px;
+    margin-left: 42px;
 }
 
+/* ===================================================================
+   Welcome Bubble & Suggestion Chips
+   =================================================================== */
+.welcome-bubble {
+    text-align: center;
+}
+
+.welcome-bubble p {
+    margin-bottom: 8px;
+}
+
+.suggestion-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    margin-top: 12px;
+}
+
+.chip {
+    background: var(--primary-light);
+    color: var(--primary);
+    border: 1px solid var(--primary);
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.chip:hover {
+    background: var(--primary);
+    color: white;
+}
+
+/* ===================================================================
+   Thinking Dots Animation
+   =================================================================== */
+.thinking-dots {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    padding: 4px 0;
+}
+
+.thinking-dots span {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background: var(--primary);
+    border-radius: 50%;
+    animation: bounce 1.4s infinite ease-in-out both;
+}
+
+.thinking-dots span:nth-child(1) { animation-delay: -0.32s; }
+.thinking-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes bounce {
+    0%, 80%, 100% { transform: scale(0); }
+    40% { transform: scale(1); }
+}
+
+/* ===================================================================
+   Markdown Content Styles
+   =================================================================== */
 .message.assistant p {
     margin: 0 0 8px 0;
 }
@@ -147,71 +388,120 @@ body {
     margin-bottom: 0;
 }
 
-/* Thinking spinner */
-.spinner {
-    display: inline-block;
-    width: 18px;
-    height: 18px;
-    border: 2px solid #ccc;
-    border-top-color: #4b6cb7;
-    border-radius: 50%;
-    animation: spin 0.6s linear infinite;
-    vertical-align: middle;
-    margin-right: 8px;
-}
-
-@keyframes spin {
-    to { transform: rotate(360deg); }
-}
-
-/* Tables — wrap in a scrollable container so wide tables don't overflow the chat bubble */
+/* ===================================================================
+   Tables
+   =================================================================== */
 .message .table-wrapper {
     overflow-x: auto;
+    width: 100%;
     margin: 10px 0;
     -webkit-overflow-scrolling: touch;
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.table-actions {
+    display: flex;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border-light);
+    position: sticky;
+    left: 0;
+}
+
+.table-action-btn {
+    background: var(--bg);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-weight: 500;
+}
+
+.table-action-btn:hover {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
 }
 
 .message table {
-    width: max-content;
-    min-width: 100%;
     border-collapse: collapse;
-    font-size: 0.85rem;
+    font-size: 0.84rem;
+    min-width: 100%;
+    width: max-content;
 }
 
 .message table th,
 .message table td {
-    border: 1px solid #ddd;
-    padding: 6px 10px;
+    border: none;
+    border-bottom: 1px solid var(--border-light);
+    padding: 8px 14px;
     text-align: left;
     white-space: nowrap;
 }
 
 .message table th {
-    background: #4b6cb7;
+    background: var(--table-header);
     color: white;
     font-weight: 600;
-    position: sticky;
-    top: 0;
-    z-index: 1;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
 }
 
 .message table tr:nth-child(even) {
-    background: #f9f9f9;
+    background: var(--table-even);
 }
 
 .message table tr:hover {
-    background: #eef2fa;
+    background: var(--table-hover);
 }
 
-/* Code blocks */
+.message table tr:last-child td {
+    border-bottom: none;
+}
+
+/* Table pagination */
+.table-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    background: var(--bg);
+    border-top: 1px solid var(--border-light);
+}
+
+.pagination-info {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
+.pagination-btn {
+    font-weight: 600;
+}
+
+.pagination-btn:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+/* ===================================================================
+   Code Blocks with Copy Button
+   =================================================================== */
 .message pre {
-    background: #f4f4f4;
-    border: 1px solid #ddd;
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
     border-radius: 6px;
     padding: 8px 12px;
     overflow-x: auto;
     font-size: 0.85rem;
     margin: 8px 0;
+    position: relative;
 }
 
 .message code {
@@ -219,11 +509,106 @@ body {
     font-size: 0.85em;
 }
 
-/* Input bar */
+.copy-btn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 0.72rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.message pre:hover .copy-btn {
+    opacity: 1;
+}
+
+/* ===================================================================
+   Feedback & Regenerate Buttons
+   =================================================================== */
+.feedback-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+    padding-left: 42px;
+}
+
+.feedback-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 8px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s;
+    /* opacity: 0.6; */
+}
+
+.feedback-btn:hover {
+    opacity: 1;
+    border-color: var(--primary);
+}
+
+.feedback-btn.active {
+    opacity: 1;
+    border-color: var(--primary);
+    background: var(--primary-light);
+}
+
+.feedback-btn:disabled {
+    cursor: default;
+}
+
+.regen-btn {
+    margin-left: 4px;
+}
+
+/* ===================================================================
+   Error & Retry
+   =================================================================== */
+.error-message {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.error-text {
+    color: var(--error-color);
+}
+
+.retry-btn {
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.retry-btn:hover {
+    background: var(--primary-dark);
+}
+
+.cancelled-text {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* ===================================================================
+   Input Bar
+   =================================================================== */
 .input-bar {
     padding: 12px 16px;
-    background: white;
-    border-top: 1px solid #e0e0e0;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
     flex-shrink: 0;
 }
 
@@ -235,32 +620,227 @@ body {
 #message-input {
     flex: 1;
     padding: 10px 14px;
-    border: 1px solid #ccc;
+    border: 1px solid var(--input-border);
     border-radius: 8px;
     font-size: 0.95rem;
     outline: none;
+    background: var(--input-bg);
+    color: var(--text);
+    transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 #message-input:focus {
-    border-color: #4b6cb7;
-    box-shadow: 0 0 0 2px rgba(75, 108, 183, 0.2);
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-light);
 }
 
-#send-btn {
+#message-input:disabled {
+    opacity: 0.6;
+}
+
+#send-btn,
+#stop-btn {
     padding: 10px 20px;
-    background: #4b6cb7;
-    color: white;
     border: none;
     border-radius: 8px;
     font-size: 0.95rem;
     cursor: pointer;
+    transition: background 0.2s;
+}
+
+#send-btn {
+    background: var(--primary);
+    color: white;
 }
 
 #send-btn:hover {
-    background: #3a5a9a;
+    background: var(--primary-dark);
 }
 
 #send-btn:disabled {
     background: #a0b4d4;
     cursor: not-allowed;
+}
+
+#stop-btn {
+    background: var(--error-color);
+    color: white;
+}
+
+#stop-btn:hover {
+    background: #c62828;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* Token info */
+.token-info {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    text-align: right;
+    margin-top: 4px;
+    min-height: 1em;
+}
+
+/* ===================================================================
+   Search highlight / hide
+   =================================================================== */
+.search-hidden {
+    display: none !important;
+}
+
+.search-highlight .message {
+    box-shadow: 0 0 0 2px var(--primary);
+}
+
+/* ===================================================================
+   Mobile Responsive
+   =================================================================== */
+@media (max-width: 768px) {
+    .app-container {
+        max-width: 100%;
+    }
+
+    .main-header {
+        padding: 12px 14px;
+    }
+
+    .main-header h1 {
+        font-size: 1.1rem;
+    }
+
+    .main-header p {
+        font-size: 0.75rem;
+    }
+
+    .header-actions {
+        gap: 4px;
+    }
+
+    .header-actions button {
+        padding: 4px 8px;
+        font-size: 0.75rem;
+    }
+
+    .chat-container {
+        padding: 12px 8px;
+        gap: 10px;
+    }
+
+    .message-row.user {
+        max-width: 90%;
+    }
+
+    .message-row.assistant {
+        max-width: 100%;
+        width: 100%;
+    }
+
+    .message {
+        font-size: 0.9rem;
+        padding: 8px 12px;
+    }
+
+    .avatar {
+        width: 26px;
+        height: 26px;
+        font-size: 0.65rem;
+    }
+
+    .message-time {
+        padding: 0 36px;
+    }
+
+    .suggestion-chips {
+        gap: 6px;
+    }
+
+    .chip {
+        font-size: 0.75rem;
+        padding: 5px 10px;
+    }
+
+    #chat-form {
+        gap: 6px;
+    }
+
+    #message-input {
+        padding: 8px 10px;
+        font-size: 0.9rem;
+    }
+
+    #send-btn,
+    #stop-btn {
+        padding: 8px 14px;
+        font-size: 0.9rem;
+    }
+
+    .message table {
+        font-size: 0.78rem;
+    }
+
+    .message table th,
+    .message table td {
+        padding: 4px 6px;
+    }
+
+    .feedback-row {
+        padding-left: 36px;
+    }
+}
+
+@media (max-width: 480px) {
+    .main-header h1 {
+        font-size: 1rem;
+    }
+
+    #clear-btn {
+        font-size: 0.7rem;
+        padding: 4px 8px;
+    }
+
+    .message-row.user {
+        max-width: 95%;
+    }
+
+    .avatar {
+        width: 22px;
+        height: 22px;
+        font-size: 0.6rem;
+    }
+
+    .message-time {
+        padding: 0 32px;
+    }
+}
+
+/* ===================================================================
+   Scrollbar styling
+   =================================================================== */
+.chat-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.chat-container::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.chat-container::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+}
+
+.chat-container::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}
+
+/* ===================================================================
+   Prism.js overrides for dark mode
+   =================================================================== */
+[data-theme="dark"] .message pre[class*="language-"],
+[data-theme="dark"] .message code[class*="language-"] {
+    background: var(--code-bg);
+    color: var(--text);
 }
